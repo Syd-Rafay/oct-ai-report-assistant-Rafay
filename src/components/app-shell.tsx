@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { clsx } from "clsx";
 import {
   Activity,
@@ -40,6 +41,34 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const store = useDemoStore();
+  const isAuthenticated = Boolean(store.data.currentUserId);
+
+  useEffect(() => {
+    if (store.ready && !isAuthenticated) {
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+    }
+  }, [store.ready, isAuthenticated, pathname, router]);
+
+  if (!store.ready) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
+        <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-600 shadow-panel">
+          Loading secure workspace...
+        </div>
+      </main>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
+        <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-600 shadow-panel">
+          Redirecting to sign in...
+        </div>
+      </main>
+    );
+  }
+
   const clinicalItems = store.currentUser.role === "admin" ? navItems.filter((item) => item.href !== "/reports/check") : navItems;
   const items = store.currentUser.role === "admin" ? [...clinicalItems, ...adminItems] : clinicalItems;
 
