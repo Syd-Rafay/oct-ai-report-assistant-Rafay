@@ -101,6 +101,19 @@ export type AuditLog = {
   createdAt: string;
 };
 
+export type FeedbackEntry = {
+  id: string;
+  type: "feedback" | "complaint";
+  name: string;
+  email?: string;
+  phone?: string;
+  patientCode?: string;
+  reportId?: string;
+  message: string;
+  status: "new" | "reviewing" | "resolved";
+  createdAt: string;
+};
+
 export type AppData = {
   currentUserId: string;
   profiles: Profile[];

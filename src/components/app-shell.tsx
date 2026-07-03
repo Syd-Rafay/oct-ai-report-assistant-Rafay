@@ -7,6 +7,7 @@ import {
   Activity,
   ClipboardList,
   FileClock,
+  Inbox,
   LayoutDashboard,
   LogOut,
   Search,
@@ -24,12 +25,14 @@ const navItems = [
   { href: "/patients/new", label: "New Patient", icon: UserPlus },
   { href: "/patients/search", label: "Search Patient", icon: Search },
   { href: "/scans/upload", label: "Upload Scan", icon: Upload },
+  { href: "/reports/check", label: "Check Report", icon: ClipboardList },
   { href: "/reports/history", label: "Report History", icon: FileClock }
 ];
 
 const adminItems = [
   { href: "/admin/users", label: "Admin Users", icon: UserCog },
   { href: "/admin/templates", label: "Templates", icon: ClipboardList },
+  { href: "/admin/feedback", label: "Feedback Inbox", icon: Inbox },
   { href: "/admin/audit-logs", label: "Audit Logs", icon: ShieldCheck }
 ];
 

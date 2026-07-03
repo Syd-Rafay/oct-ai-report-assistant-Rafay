@@ -72,4 +72,20 @@ Environment variable:
 ALLOWED_ORIGINS=https://your-vercel-app.vercel.app
 ```
 
+For public patient report lookup and automatic access emails, also add:
+
+```text
+SUPABASE_URL=https://vxivcawwlxcrnkofbywg.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your Supabase service role key
+FRONTEND_URL=https://oct-ai-report-assistant.vercel.app
+SMTP_HOST=your SMTP host
+SMTP_PORT=587
+SMTP_USERNAME=your SMTP username
+SMTP_PASSWORD=your SMTP password
+SMTP_FROM_EMAIL=reports@your-clinic-domain.com
+SMTP_FROM_NAME=OCT AI Report Assistant
+```
+
+The service role key must stay on the backend only. Do not add it to Vercel `NEXT_PUBLIC_*` variables.
+
 After the backend is deployed, set `NEXT_PUBLIC_AI_BACKEND_URL` in Vercel to that deployed backend URL.

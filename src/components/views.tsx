@@ -2,14 +2,19 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
+  ClipboardCheck,
+  Copy,
   Download,
   FileText,
+  Inbox,
   Loader2,
+  MessageSquare,
   Plus,
+  Printer,
   RotateCcw,
   Save,
   Search,
@@ -20,9 +25,11 @@ import { PageTitle } from "./app-shell";
 import { Button, Card, CardHeader, EmptyState, SafetyNotice, StatusBadge } from "./ui";
 import { predictOCT } from "@/lib/ai-api";
 import { useDemoStore } from "@/lib/demo-store";
+import { getFeedbackEntries, submitFeedback, updateFeedbackStatus } from "@/lib/feedback";
 import { downloadReportPdf } from "@/lib/pdf";
+import { checkPublicReport, getReportAccessPassword, sendReportAccessEmail, type PublicReportResult } from "@/lib/report-access";
 import { reportTemplates } from "@/lib/report-templates";
-import type { DiseaseClass, EyeSide, Gender, Patient, Report, Role } from "@/lib/types";
+import type { DiseaseClass, EyeSide, FeedbackEntry, Gender, Patient, Report, Role } from "@/lib/types";
 
 const diseaseClasses: DiseaseClass[] = ["CNV", "DME", "DRUSEN", "NORMAL"];
 
@@ -30,6 +37,7 @@ export function LoginView() {
   const router = useRouter();
   const store = useDemoStore();
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -162,14 +170,22 @@ export function LoginView() {
               {loading ? <Loader2 className="animate-spin" size={16} /> : null}
               {authMode === "signin" ? "Sign in" : "Request access"}
             </Button>
-            <div className="flex justify-between text-sm">
+            <div className="flex flex-wrap justify-between gap-3 text-sm">
               <Link href="/forgot-password" className="font-semibold text-clinic-700">
                 Forgot password?
               </Link>
+              <Link href="/reports/check" className="font-semibold text-clinic-700">
+                Check report
+              </Link>
             </div>
+            <Button className="w-full" variant="secondary" onClick={() => setFeedbackOpen(true)}>
+              <MessageSquare size={16} />
+              Feedback / complaint
+            </Button>
           </div>
         </Card>
       </section>
+      {feedbackOpen ? <FeedbackDialog onClose={() => setFeedbackOpen(false)} /> : null}
     </main>
   );
 }
@@ -284,16 +300,21 @@ function AuthCard({ title, subtitle, action }: { title: string; subtitle: string
 
 export function DashboardView() {
   const store = useDemoStore();
+  const [feedbackCount, setFeedbackCount] = useState(0);
   const pending = store.data.reports.filter((report) => report.status !== "approved").length;
   const approved = store.data.reports.filter((report) => report.status === "approved").length;
   const today = new Date().toISOString().slice(0, 10);
   const todayReports = store.data.reports.filter((report) => report.createdAt.startsWith(today)).length;
+  useEffect(() => {
+    setFeedbackCount(getFeedbackEntries().filter((entry) => entry.status !== "resolved").length);
+  }, []);
   const stats = [
     ["Total patients", store.data.patients.length],
     ["Total scans", store.data.scans.length],
     ["Pending reports", pending],
     ["Approved reports", approved],
-    ["Reports today", todayReports]
+    ["Reports today", todayReports],
+    ["Open feedback", feedbackCount]
   ];
 
   return (
@@ -315,11 +336,17 @@ export function DashboardView() {
                 Upload OCT
               </Button>
             </Link>
+            <Link href="/reports/check" className="block">
+              <Button className="w-full" variant="secondary">
+                <ClipboardCheck size={16} />
+                Check Report
+              </Button>
+            </Link>
           </div>
         }
       />
       <SafetyNotice />
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {stats.map(([label, value]) => (
           <Card key={label} className="p-5">
             <p className="text-sm font-semibold text-slate-500">{label}</p>
@@ -690,6 +717,7 @@ export function ReportEditorView({ id }: { id: string }) {
   const report = store.data.reports.find((item) => item.id === id);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [accessMessage, setAccessMessage] = useState("");
   const [draft, setDraft] = useState<Report | undefined>(report);
 
   useEffect(() => {
@@ -716,8 +744,25 @@ export function ReportEditorView({ id }: { id: string }) {
 
   const approve = async () => {
     setError("");
+    setAccessMessage("");
     try {
       const approved = await store.approveReport(draft);
+      const accessPassword = getReportAccessPassword(approved);
+      try {
+        if (patient?.email) {
+          const emailResult = await sendReportAccessEmail({
+            toEmail: patient.email,
+            patientName: patient.fullName,
+            reportId: approved.id,
+            password: accessPassword
+          });
+          setAccessMessage(emailResult.message);
+        } else {
+          setAccessMessage(`No patient email saved. Share Report ID ${approved.id} and password ${accessPassword} manually.`);
+        }
+      } catch {
+        setAccessMessage(`Report approved. Email could not be sent automatically. Share Report ID ${approved.id} and password ${accessPassword} manually.`);
+      }
       router.push(`/reports/${approved.id}/view`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not approve report.");
@@ -730,6 +775,8 @@ export function ReportEditorView({ id }: { id: string }) {
       <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
         <Card className="p-5">
           {patient ? <Info label="Patient" value={`${patient.patientCode} - ${patient.fullName}`} /> : null}
+          <Info label="Report access ID" value={draft.id} />
+          <Info label="Access password" value={getReportAccessPassword(draft)} />
           {ai ? (
             <>
               <Info label="AI prediction" value={`${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)`} />
@@ -753,6 +800,7 @@ export function ReportEditorView({ id }: { id: string }) {
           </div>
           {error ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
           {saved ? <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">Draft saved.</p> : null}
+          {accessMessage ? <p className="mt-4 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800">{accessMessage}</p> : null}
           <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
             <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("draft")}>
               <Save size={16} />
@@ -786,10 +834,16 @@ export function ReportView({ id }: { id: string }) {
         subtitle={patient ? `${patient.patientCode} - ${patient.fullName}` : "Approved report"}
         action={
           patient && scan && ai ? (
-            <Button onClick={() => downloadReportPdf({ patient, scan, aiResult: ai, report, approver })}>
-              <Download size={16} />
-              Download PDF
-            </Button>
+            <div className="grid gap-2 sm:flex">
+              <Button className="w-full sm:w-auto" variant="secondary" onClick={() => window.print()}>
+                <Printer size={16} />
+                Print
+              </Button>
+              <Button className="w-full sm:w-auto" onClick={() => downloadReportPdf({ patient, scan, aiResult: ai, report, approver })}>
+                <Download size={16} />
+                Download PDF
+              </Button>
+            </div>
           ) : null
         }
       />
@@ -805,6 +859,8 @@ export function ReportView({ id }: { id: string }) {
           <div>
             {scan ? <img src={scan.imageUrl} alt="OCT scan" className="aspect-[4/3] w-full rounded-md object-cover" /> : null}
             <div className="mt-4 space-y-3">
+              <Info label="Report access ID" value={report.id} />
+              <Info label="Access password" value={getReportAccessPassword(report)} />
               {patient ? <Info label="Patient" value={`${patient.patientCode} - ${patient.fullName}`} /> : null}
               {ai ? <Info label="AI prediction" value={`${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)`} /> : null}
               <Info label="Approved by" value={approver?.fullName ?? "Not approved"} />
@@ -831,7 +887,7 @@ export function ReportHistoryView() {
   const reports = store.data.reports.filter((report) => {
     const patient = store.data.patients.find((item) => item.id === report.patientId);
     const ai = store.data.aiResults.find((item) => item.id === report.aiResultId);
-    return `${patient?.patientCode} ${patient?.fullName} ${report.status} ${ai?.predictedClass} ${report.finalDiagnosis}`
+    return `${report.id} ${patient?.patientCode} ${patient?.fullName} ${report.status} ${ai?.predictedClass} ${report.finalDiagnosis}`
       .toLowerCase()
       .includes(query.toLowerCase());
   });
@@ -839,10 +895,243 @@ export function ReportHistoryView() {
     <>
       <PageTitle title="Report History" subtitle="Search by patient ID, name, status, AI prediction, or final diagnosis." />
       <Card className="p-5">
-        <input className="field" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search report history..." />
+        <input className="field" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search report ID, patient ID, name, status, or diagnosis..." />
       </Card>
       <Card className="mt-5">
         <ReportRows reports={reports} />
+      </Card>
+    </>
+  );
+}
+
+export function PatientReportCheckView() {
+  const store = useDemoStore();
+  const [reportId, setReportId] = useState("");
+  const [password, setPassword] = useState("");
+  const [publicResult, setPublicResult] = useState<PublicReportResult | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState("");
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const normalizedReportId = reportId.trim().toLowerCase();
+  const normalizedPassword = password.trim();
+  const match = useMemo(() => {
+    if (!normalizedReportId || !normalizedPassword) return null;
+    return store.data.reports.find((report) => {
+      return report.id.toLowerCase() === normalizedReportId && getReportAccessPassword(report) === normalizedPassword;
+    }) ?? null;
+  }, [normalizedPassword, normalizedReportId, store.data.reports]);
+  const patient = match ? store.data.patients.find((item) => item.id === match.patientId) : null;
+  const ai = match ? store.data.aiResults.find((item) => item.id === match.aiResultId) : null;
+  const publicReport = publicResult?.report;
+
+  const checkReport = async () => {
+    setCheckError("");
+    setPublicResult(null);
+    if (!reportId.trim() || !password.trim()) return;
+    if (match) return;
+
+    setChecking(true);
+    try {
+      const result = await checkPublicReport(reportId.trim(), password.trim());
+      setPublicResult(result);
+    } catch (err) {
+      setCheckError(err instanceof Error ? err.message : "Could not check report.");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <>
+      <PageTitle
+        title="Check Report"
+        subtitle="Enter the report access ID and generated password sent by the clinic. Reports open only after doctor approval."
+        action={
+          <Button variant="secondary" onClick={() => setFeedbackOpen(true)}>
+            <MessageSquare size={16} />
+            Feedback / complaint
+          </Button>
+        }
+      />
+      <div className="grid gap-5 lg:grid-cols-[420px_1fr]">
+        <Card className="p-5">
+          <div className="grid gap-4">
+            <Field label="Report access ID" value={reportId} onChange={setReportId} />
+            <Field label="Access password" value={password} onChange={setPassword} />
+            <Button onClick={checkReport} disabled={checking || !reportId.trim() || !password.trim()}>
+              {checking ? <Loader2 className="animate-spin" size={16} /> : <Search size={16} />}
+              Check Report
+            </Button>
+          </div>
+          <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-4">
+            <p className="font-bold text-slate-950">Access flow</p>
+            <div className="mt-3 space-y-3 text-sm font-semibold text-slate-600">
+              <p>1. Clinic creates and reviews the OCT report.</p>
+              <p>2. Customer receives report ID with a password like Xisn12H.</p>
+              <p>3. Approved reports can be viewed, downloaded, and printed.</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-5">
+          {checkError ? (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{checkError}</p>
+          ) : !reportId || !password ? (
+            <EmptyState title="Enter report details" body="The result will appear here after both fields are filled." />
+          ) : !match && !publicResult ? (
+            <EmptyState title="Ready to check" body="Press Check Report to verify the access ID and password." />
+          ) : !match && publicResult && !publicResult.found ? (
+            <EmptyState title="No matching report" body={publicResult.message ?? "Check the report access ID and password, or contact the clinic."} />
+          ) : !match && publicResult && !publicResult.approved ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-5">
+              <StatusBadge status={publicResult.status ?? "pending_review"} />
+              <h3 className="mt-4 text-xl font-black text-amber-950">Report not made available yet</h3>
+              <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
+                This report is registered, but it cannot be viewed before doctor approval. Please check again after review is complete.
+              </p>
+            </div>
+          ) : match && match.status !== "approved" ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-5">
+              <StatusBadge status={match.status} />
+              <h3 className="mt-4 text-xl font-black text-amber-950">Report not made available yet</h3>
+              <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
+                This report is registered, but it cannot be viewed before doctor approval. Please check again after the clinic completes review.
+              </p>
+            </div>
+          ) : publicReport ? (
+            <div>
+              <StatusBadge status="approved" />
+              <h3 className="mt-3 text-xl font-black text-slate-950">Approved report found</h3>
+              <p className="mt-1 text-sm text-slate-500">{publicReport.patientCode} - {publicReport.patientName}</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <Info label="AI prediction" value={publicReport.predictedClass ? `${publicReport.predictedClass} (${Math.round((publicReport.confidence ?? 0) * 100)}%)` : "-"} />
+                <Info label="Approved at" value={publicReport.approvedAt ? new Date(publicReport.approvedAt).toLocaleString() : "-"} />
+                <Info label="Report ID" value={publicReport.id} />
+                <Info label="Patient ID" value={publicReport.patientCode} />
+              </div>
+              <div className="mt-5 space-y-4">
+                <ReportSection title="Findings" body={publicReport.findings} />
+                <ReportSection title="Impression" body={publicReport.impression} />
+                <ReportSection title="Recommendation" body={publicReport.recommendation} />
+                <ReportSection title="Doctor Notes" body={publicReport.doctorNotes || "No additional notes."} />
+                <ReportSection title="Final Diagnosis" body={publicReport.finalDiagnosis} />
+              </div>
+              <Button className="mt-5" variant="secondary" onClick={() => window.print()}>
+                <Printer size={16} />
+                Print
+              </Button>
+            </div>
+          ) : match ? (
+            <div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <StatusBadge status={match.status} />
+                  <h3 className="mt-3 text-xl font-black text-slate-950">Approved report found</h3>
+                  <p className="mt-1 text-sm text-slate-500">{patient?.patientCode} - {patient?.fullName}</p>
+                </div>
+                <Link href={`/reports/${match.id}/view`}>
+                  <Button className="w-full sm:w-auto">
+                    <FileText size={16} />
+                    Show Report
+                  </Button>
+                </Link>
+              </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <Info label="AI prediction" value={ai ? `${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)` : "-"} />
+                <Info label="Approved at" value={match.approvedAt ? new Date(match.approvedAt).toLocaleString() : "-"} />
+                <Info label="Report ID" value={match.id} />
+                <Info label="Patient ID" value={patient?.patientCode ?? "-"} />
+              </div>
+            </div>
+          ) : (
+            <EmptyState title="No matching report" body="Check the report access ID and password, or contact the clinic." />
+          )}
+        </Card>
+      </div>
+      {feedbackOpen ? <FeedbackDialog reportId={reportId} onClose={() => setFeedbackOpen(false)} /> : null}
+    </>
+  );
+}
+
+export function FeedbackReviewView({ scope = "admin" }: { scope?: "admin" | "hod" }) {
+  const store = useDemoStore();
+  const [entries, setEntries] = useState<FeedbackEntry[]>([]);
+  const [filter, setFilter] = useState<"all" | FeedbackEntry["status"]>("all");
+  const canReview = store.currentUser.role === "admin";
+  const visible = entries.filter((entry) => filter === "all" || entry.status === filter);
+
+  useEffect(() => {
+    setEntries(getFeedbackEntries());
+  }, []);
+
+  const setStatus = (id: string, status: FeedbackEntry["status"]) => {
+    setEntries(updateFeedbackStatus(id, status));
+  };
+
+  if (!canReview) return <Missing title="Access restricted" href="/dashboard" label="Back to dashboard" />;
+
+  return (
+    <>
+      <PageTitle
+        title="Feedback Inbox"
+        subtitle="Review customer complaints, feedback, and reports waiting for admin approval."
+      />
+      <div className="mb-5 grid gap-3 lg:grid-cols-3">
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-slate-500">New feedback</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{entries.filter((entry) => entry.status === "new").length}</p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-slate-500">Pending reports</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{store.data.reports.filter((report) => report.status !== "approved").length}</p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-slate-500">Approved reports</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{store.data.reports.filter((report) => report.status === "approved").length}</p>
+        </Card>
+      </div>
+      <Card className="p-5">
+        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+          <div>
+            <h3 className="font-black text-slate-950">Feedback and complaints</h3>
+            <p className="mt-1 text-sm text-slate-500">Use status changes to track what has been reviewed.</p>
+          </div>
+          <select className="field sm:w-44" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
+            <option value="all">All</option>
+            <option value="new">New</option>
+            <option value="reviewing">Reviewing</option>
+            <option value="resolved">Resolved</option>
+          </select>
+        </div>
+      </Card>
+      <div className="mt-5 grid gap-4">
+        {visible.map((entry) => (
+          <Card key={entry.id} className="p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-clinic-700">{entry.type}</p>
+                <h3 className="mt-1 text-lg font-black text-slate-950">{entry.name}</h3>
+                <p className="mt-1 text-sm text-slate-500">{new Date(entry.createdAt).toLocaleString()}</p>
+              </div>
+              <StatusBadge status={entry.status === "new" ? "pending" : entry.status === "reviewing" ? "pending_review" : "approved"} />
+            </div>
+            <p className="mt-4 rounded-md bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-700">{entry.message}</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <Info label="Email" value={entry.email || "-"} />
+              <Info label="Phone" value={entry.phone || "-"} />
+              <Info label="Patient ID" value={entry.patientCode || "-"} />
+              <Info label="Report ID" value={entry.reportId || "-"} />
+            </div>
+            <div className="mt-4 grid gap-2 sm:flex sm:justify-end">
+              <Button className="w-full sm:w-auto" variant="secondary" onClick={() => setStatus(entry.id, "reviewing")}>Mark Reviewing</Button>
+              <Button className="w-full sm:w-auto" onClick={() => setStatus(entry.id, "resolved")}>Resolve</Button>
+            </div>
+          </Card>
+        ))}
+        {visible.length === 0 ? <EmptyState title="No feedback found" body="Submitted feedback and complaints will appear here for admin and HOD review." /> : null}
+      </div>
+      <Card className="mt-5">
+        <CardHeader title="Reports awaiting approval" subtitle="Admin/HOD reviewers can open drafts and approve them after checking clinical language." />
+        <ReportRows reports={store.data.reports.filter((report) => report.status !== "approved")} />
       </Card>
     </>
   );
@@ -1060,6 +1349,17 @@ function ReportRows({ reports }: { reports: Report[] }) {
             <div>
               <p className="font-bold text-slate-900">{patient?.fullName ?? "Unknown patient"}</p>
               <p className="text-sm text-slate-500">{patient?.patientCode} | AI: {ai?.predictedClass ?? "-"}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <code className="rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{report.id}</code>
+                <code className="rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-800">{getReportAccessPassword(report)}</code>
+                <button
+                  className="inline-flex items-center gap-1 text-xs font-bold text-clinic-700"
+                  onClick={() => void navigator.clipboard?.writeText(`Report ID: ${report.id}\nPassword: ${getReportAccessPassword(report)}`)}
+                >
+                  <Copy size={13} />
+                  Copy Access
+                </button>
+              </div>
             </div>
             <StatusBadge status={report.status} />
             <div className="grid grid-cols-2 gap-2 sm:flex">
@@ -1132,6 +1432,89 @@ function PatientTable({ patients, scans, reports }: { patients: Patient[]; scans
         </tbody>
       </table>
     </>
+  );
+}
+
+function FeedbackDialog({
+  onClose,
+  reportId = "",
+  patientCode = ""
+}: {
+  onClose: () => void;
+  reportId?: string;
+  patientCode?: string;
+}) {
+  const [form, setForm] = useState({
+    type: "feedback" as FeedbackEntry["type"],
+    name: "",
+    email: "",
+    phone: "",
+    patientCode,
+    reportId,
+    message: ""
+  });
+  const [registeredId, setRegisteredId] = useState("");
+
+  const submit = () => {
+    if (!form.name || !form.message) return;
+    const entry = submitFeedback({
+      type: form.type,
+      name: form.name,
+      email: form.email || undefined,
+      phone: form.phone || undefined,
+      patientCode: form.patientCode || undefined,
+      reportId: form.reportId || undefined,
+      message: form.message
+    });
+    setRegisteredId(entry.id);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
+      <Card className="max-h-[92vh] w-full max-w-xl overflow-auto p-5">
+        {!registeredId ? (
+          <>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-clinic-700">Feedback desk</p>
+                <h3 className="mt-1 text-xl font-black text-slate-950">Register feedback or complaint</h3>
+              </div>
+              <Button variant="ghost" onClick={onClose}>Close</Button>
+            </div>
+            <div className="mt-5 grid gap-4">
+              <SelectField
+                label="Type"
+                value={form.type}
+                options={["feedback", "complaint"]}
+                optionLabels={{ feedback: "Feedback", complaint: "Complaint" }}
+                onChange={(value) => setForm({ ...form, type: value as FeedbackEntry["type"] })}
+              />
+              <Field label="Your name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
+                <Field label="Phone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Patient ID optional" value={form.patientCode} onChange={(value) => setForm({ ...form, patientCode: value })} />
+                <Field label="Report ID optional" value={form.reportId} onChange={(value) => setForm({ ...form, reportId: value })} />
+              </div>
+              <Textarea label="Message" value={form.message} onChange={(value) => setForm({ ...form, message: value })} />
+              <Button onClick={submit} disabled={!form.name || !form.message}>
+                <Inbox size={16} />
+                Register
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="text-center">
+            <CheckCircle2 className="mx-auto text-emerald-600" size={44} />
+            <h3 className="mt-4 text-xl font-black text-slate-950">Request registered</h3>
+            <p className="mt-2 text-sm font-semibold text-slate-600">Reference ID: {registeredId}</p>
+            <Button className="mt-5" onClick={onClose}>Done</Button>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 
