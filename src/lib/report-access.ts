@@ -1,4 +1,4 @@
-import type { DiseaseClass, Patient, Report } from "./types";
+import type { Patient, Report } from "./types";
 
 const ACCESS_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
@@ -43,13 +43,13 @@ export type PublicReportResult = {
     patientName: string;
     age?: number;
     gender?: string;
-    predictedClass?: DiseaseClass;
-    confidence?: number;
+    result?: string;
     findings: string;
     impression: string;
     recommendation: string;
     doctorNotes: string;
     finalDiagnosis: string;
+    approvedByName?: string;
     approvedAt?: string;
   };
 };
@@ -86,7 +86,7 @@ export async function sendReportAccessEmail(input: {
   patientName: string;
   accessId: string;
   password: string;
-  mode: "patient-created" | "report-ready";
+  mode: "patient-created" | "report-registered" | "report-ready";
 }) {
   const response = await fetch(`${backendBaseUrl()}/reports/send-access-email`, {
     method: "POST",
@@ -102,6 +102,39 @@ export async function sendReportAccessEmail(input: {
 
   if (!response.ok) {
     let detail = "Could not send report access email.";
+    try {
+      const body = await response.json();
+      detail = body.detail ?? detail;
+    } catch {
+      // Keep default message.
+    }
+    throw new Error(detail);
+  }
+
+  return response.json() as Promise<{ sent: boolean; configured: boolean; message: string }>;
+}
+
+export async function sendFeedbackEmail(input: {
+  toEmail: string;
+  patientName: string;
+  feedbackType: "feedback" | "complaint";
+  mode: "registered" | "response";
+  body?: string;
+}) {
+  const response = await fetch(`${backendBaseUrl()}/feedback/send-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      to_email: input.toEmail,
+      patient_name: input.patientName,
+      feedback_type: input.feedbackType,
+      mode: input.mode,
+      body: input.body
+    })
+  });
+
+  if (!response.ok) {
+    let detail = "Could not send feedback email.";
     try {
       const body = await response.json();
       detail = body.detail ?? detail;

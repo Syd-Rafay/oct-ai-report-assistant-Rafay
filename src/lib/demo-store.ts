@@ -938,11 +938,16 @@ export function useDemoStore() {
       commit(audit({ ...data, reports }, "Report edited", "report", report.id, report.status));
     },
     async approveReport(report: Report) {
-      if (currentUser.role === "assistant") {
-        throw new Error("Only doctors or admins can approve reports.");
+      if (currentUser.role !== "doctor") {
+        throw new Error("Only doctors can approve reports.");
       }
+      const aiResult = data.aiResults.find((item) => item.id === report.aiResultId);
       const approved: Report = {
         ...report,
+        finalDiagnosis:
+          report.finalDiagnosis === "Needs clinical correlation" && aiResult
+            ? aiResult.predictedClass
+            : report.finalDiagnosis,
         status: "approved",
         approvedBy: actorId ?? currentUser.id,
         approvedAt: now(),
@@ -953,6 +958,7 @@ export function useDemoStore() {
         const { data: row, error } = await supabase
           .from("reports")
           .update({
+            final_diagnosis: approved.finalDiagnosis,
             status: "approved",
             approved_by: actorId,
             approved_at: approved.approvedAt,

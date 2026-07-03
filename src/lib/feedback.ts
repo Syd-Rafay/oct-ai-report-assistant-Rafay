@@ -1,6 +1,6 @@
 "use client";
 
-import type { FeedbackEntry } from "./types";
+import type { FeedbackEntry, FeedbackResponse } from "./types";
 
 const FEEDBACK_KEY = "oct-ai-report-assistant-feedback-v1";
 
@@ -36,6 +36,25 @@ export function submitFeedback(input: Omit<FeedbackEntry, "id" | "status" | "cre
 
 export function updateFeedbackStatus(id: string, status: FeedbackEntry["status"]) {
   const entries = readEntries().map((entry) => (entry.id === id ? { ...entry, status } : entry));
+  writeEntries(entries);
+  return entries;
+}
+
+export function addFeedbackResponse(id: string, input: Omit<FeedbackResponse, "id" | "createdAt">) {
+  const response: FeedbackResponse = {
+    ...input,
+    id: `msg_${Math.random().toString(36).slice(2, 10)}`,
+    createdAt: new Date().toISOString()
+  };
+  const entries = readEntries().map((entry) =>
+    entry.id === id
+      ? {
+          ...entry,
+          status: "resolved" as const,
+          responses: [response, ...(entry.responses ?? [])]
+        }
+      : entry
+  );
   writeEntries(entries);
   return entries;
 }

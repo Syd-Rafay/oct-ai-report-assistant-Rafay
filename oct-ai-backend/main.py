@@ -132,6 +132,14 @@ class ReportAccessEmailRequest(BaseModel):
     mode: str = "report-ready"
 
 
+class FeedbackEmailRequest(BaseModel):
+    to_email: str
+    patient_name: str
+    feedback_type: str = "feedback"
+    mode: str = "registered"
+    body: str = ""
+
+
 def basic_oct_image_check(image: Image.Image) -> bool:
     rgb = np.array(image.convert("RGB").resize((300, 300)))
     gray = np.array(image.convert("L").resize((300, 300)))
@@ -227,6 +235,49 @@ def email_configured() -> bool:
     return resend_configured() or smtp_configured()
 
 
+def send_plain_email(to_email: str, subject: str, text_content: str) -> None:
+    if resend_configured():
+        payload = {
+            "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
+            "to": [to_email],
+            "subject": subject,
+            "text": text_content,
+        }
+        try:
+            response = requests.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json=payload,
+                timeout=20,
+            )
+            response.raise_for_status()
+            return
+        except requests.HTTPError as exc:
+            detail = exc.response.text if exc.response is not None else str(exc)
+            raise HTTPException(status_code=502, detail=f"Email sending failed: {detail}") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Email sending failed: {exc}") from exc
+
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
+    message["To"] = to_email
+    message.set_content(text_content)
+
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            server.starttls(context=context)
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            server.send_message(message)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Email sending failed: {exc}") from exc
+
+
 @app.get("/")
 def root():
     return {
@@ -292,6 +343,14 @@ def check_report_access(input_data: ReportCheckRequest):
             }
 
         ai_result = first_row("ai_results", {"id": f"eq.{report['ai_result_id']}", "select": "*"})
+        approver = (
+            first_row("profiles", {"id": f"eq.{report['approved_by']}", "select": "full_name"})
+            if report.get("approved_by")
+            else None
+        )
+        final_result = report.get("final_diagnosis") or "Needs clinical correlation"
+        if final_result == "Needs clinical correlation" and ai_result:
+            final_result = ai_result.get("predicted_class") or final_result
 
         return {
             "configured": True,
@@ -304,13 +363,13 @@ def check_report_access(input_data: ReportCheckRequest):
                 "patientName": patient.get("full_name", ""),
                 "age": patient.get("age"),
                 "gender": patient.get("gender"),
-                "predictedClass": ai_result.get("predicted_class") if ai_result else None,
-                "confidence": ai_result.get("confidence") if ai_result else None,
+                "result": final_result,
                 "findings": report.get("findings") or "",
                 "impression": report.get("impression") or "",
                 "recommendation": report.get("recommendation") or "",
                 "doctorNotes": report.get("doctor_notes") or "",
-                "finalDiagnosis": report.get("final_diagnosis") or "Needs clinical correlation",
+                "finalDiagnosis": final_result,
+                "approvedByName": approver.get("full_name") if approver else "",
                 "approvedAt": report.get("approved_at"),
             },
         }
@@ -336,6 +395,8 @@ def send_report_access_email(input_data: ReportAccessEmailRequest):
     subject = (
         "Your OCT report access details"
         if input_data.mode == "patient-created"
+        else "Your OCT report has been registered"
+        if input_data.mode == "report-registered"
         else "Your OCT report is ready"
     )
     text_content = "\n".join(
@@ -345,66 +406,20 @@ def send_report_access_email(input_data: ReportAccessEmailRequest):
             (
                 "Your patient record has been created. Use the details below to check your OCT report status once your scan/report is completed."
                 if input_data.mode == "patient-created"
-                else "Your OCT report has been reviewed and is ready to view, download, and print."
+                else "Your OCT report has been registered and is waiting for doctor review. You can use the details below to check when it becomes available."
+                if input_data.mode == "report-registered"
+                else "Your OCT report has been reviewed and approved by the doctor. It is ready to view, download, and print."
             ),
             "",
             f"Access ID: {input_data.access_id}",
             f"Access password: {input_data.password}",
             f"Open: {report_url}",
             "",
-            "This report is AI-assisted and doctor reviewed. Please contact the clinic if you have questions.",
+            "Please contact the clinic if you have questions.",
         ]
     )
 
-    if resend_configured():
-        payload = {
-            "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
-            "to": [input_data.to_email],
-            "subject": subject,
-            "text": text_content,
-        }
-        try:
-            response = requests.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {RESEND_API_KEY}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-                json=payload,
-                timeout=20,
-            )
-            response.raise_for_status()
-        except requests.HTTPError as exc:
-            detail = exc.response.text if exc.response is not None else str(exc)
-            raise HTTPException(status_code=502, detail=f"Email sending failed: {detail}") from exc
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Email sending failed: {exc}") from exc
-
-        return {
-            "sent": True,
-            "configured": True,
-            "message": (
-                "Patient saved and access email sent."
-                if input_data.mode == "patient-created"
-                else "Report approved and ready email sent to the patient."
-            ),
-        }
-
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
-    message["To"] = input_data.to_email
-    message.set_content(text_content)
-
-    try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
-            server.starttls(context=context)
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            server.send_message(message)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Email sending failed: {exc}") from exc
+    send_plain_email(input_data.to_email, subject, text_content)
 
     return {
         "sent": True,
@@ -412,9 +427,57 @@ def send_report_access_email(input_data: ReportAccessEmailRequest):
         "message": (
             "Patient saved and access email sent."
             if input_data.mode == "patient-created"
+            else "Report registration email sent to the patient."
+            if input_data.mode == "report-registered"
             else "Report approved and ready email sent to the patient."
         ),
     }
+
+
+@app.post("/feedback/send-email")
+def send_feedback_email(input_data: FeedbackEmailRequest):
+    if not email_configured():
+        return {
+            "sent": False,
+            "configured": False,
+            "message": "Feedback saved, but backend email settings are not configured.",
+        }
+
+    feedback_label = "complaint" if input_data.feedback_type == "complaint" else "feedback"
+    if input_data.mode == "response":
+        subject = f"Response to your {feedback_label}"
+        text_content = "\n".join(
+            [
+                f"Hello {input_data.patient_name},",
+                "",
+                f"Thank you for contacting us about your {feedback_label}. Our team has reviewed your message and has shared the response below.",
+                "",
+                input_data.body.strip() or "Your message has been reviewed by our team.",
+                "",
+                "If you need any further help, please reply to this email or contact the clinic directly.",
+                "",
+                "Regards,",
+                "OCT Report Assistant Team",
+            ]
+        )
+        success_message = "Response email sent to the patient."
+    else:
+        subject = f"Your {feedback_label} has been acknowledged"
+        text_content = "\n".join(
+            [
+                f"Hello {input_data.patient_name},",
+                "",
+                f"Your {feedback_label} has been received and acknowledged by the clinic team.",
+                "We will review it and respond as soon as possible if a reply is needed.",
+                "",
+                "Regards,",
+                "OCT Report Assistant Team",
+            ]
+        )
+        success_message = f"{feedback_label.title()} acknowledgement email sent."
+
+    send_plain_email(input_data.to_email, subject, text_content)
+    return {"sent": True, "configured": True, "message": success_message}
 
 
 @app.post("/predict")

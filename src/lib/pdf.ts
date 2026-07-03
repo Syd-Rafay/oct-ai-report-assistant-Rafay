@@ -22,7 +22,7 @@ export function downloadReportPdf(args: {
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text("AI-Assisted OCT Report", margin, y);
+  doc.text("Doctor-Approved OCT Report", margin, y);
   doc.setFontSize(9);
   doc.text("Clinical OCT Reporting Service", margin, y + 18);
 
@@ -46,7 +46,7 @@ export function downloadReportPdf(args: {
 
   y += 92;
   doc.setFont("helvetica", "bold");
-  doc.text("AI Analysis", margin, y);
+  doc.text("Model Analysis - Doctor Use", margin, y);
   doc.setFont("helvetica", "normal");
   doc.text(`${safetyDisclaimer}`, margin, y + 18);
   doc.text(`Prediction: ${aiResult.predictedClass}`, margin, y + 40);
@@ -97,7 +97,7 @@ export function downloadPublicReportPdf(report: NonNullable<PublicReportResult["
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text("AI-Assisted OCT Report", margin, y);
+  doc.text("Doctor-Approved OCT Report", margin, y);
   doc.setFontSize(9);
   doc.text("Approved patient copy", margin, y + 18);
 
@@ -111,16 +111,15 @@ export function downloadPublicReportPdf(report: NonNullable<PublicReportResult["
   doc.text(`Name: ${report.patientName}`, margin, y + 38);
   doc.text(`Age/Gender: ${report.age ?? "-"} / ${report.gender ?? "-"}`, margin, y + 56);
   doc.text(`Approved at: ${report.approvedAt ? new Date(report.approvedAt).toLocaleString() : "-"}`, 320, y + 20);
+  doc.text(`Approved by: ${report.approvedByName ?? "Doctor"}`, 320, y + 38);
 
   y += 92;
   doc.setFont("helvetica", "bold");
-  doc.text("AI Analysis", margin, y);
+  doc.text("Results", margin, y);
   doc.setFont("helvetica", "normal");
-  doc.text(`${safetyDisclaimer}`, margin, y + 18);
-  doc.text(`Prediction: ${report.predictedClass ?? "-"}`, margin, y + 40);
-  doc.text(`Confidence: ${Math.round((report.confidence ?? 0) * 100)}%`, margin + 160, y + 40);
+  doc.text(`Results: ${report.result || report.finalDiagnosis || "-"}`, margin, y + 22);
 
-  y += 76;
+  y += 58;
   const sections = [
     ["Findings", report.findings],
     ["Impression", report.impression],

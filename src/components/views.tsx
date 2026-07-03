@@ -24,9 +24,9 @@ import { PageTitle } from "./app-shell";
 import { Button, Card, CardHeader, EmptyState, SafetyNotice, StatusBadge } from "./ui";
 import { predictOCT } from "@/lib/ai-api";
 import { useDemoStore } from "@/lib/demo-store";
-import { getFeedbackEntries, submitFeedback, updateFeedbackStatus } from "@/lib/feedback";
+import { addFeedbackResponse, getFeedbackEntries, submitFeedback, updateFeedbackStatus } from "@/lib/feedback";
 import { downloadPublicReportPdf, downloadReportPdf } from "@/lib/pdf";
-import { checkPublicReport, getPatientAccessPassword, sendReportAccessEmail, type PublicReportResult } from "@/lib/report-access";
+import { checkPublicReport, getPatientAccessPassword, sendFeedbackEmail, sendReportAccessEmail, type PublicReportResult } from "@/lib/report-access";
 import { reportTemplates } from "@/lib/report-templates";
 import type { DiseaseClass, EyeSide, FeedbackEntry, Gender, Patient, Report, Role } from "@/lib/types";
 
@@ -46,6 +46,11 @@ function cleanAgeInput(value: string) {
   const numeric = value.replace(/[^\d]/g, "");
   if (!numeric) return "";
   return String(Math.min(MAX_PATIENT_AGE, Number(numeric)));
+}
+
+function doctorDisplayName(name?: string) {
+  if (!name) return "Doctor";
+  return /^dr\.?\s/i.test(name) ? name : `Dr. ${name}`;
 }
 
 export function LoginView() {
@@ -810,6 +815,19 @@ export function AnalysisView({ id }: { id: string }) {
   const generate = async () => {
     const result = aiResult ?? store.runAnalysis(scan);
     const report = await store.createReport(scan, result);
+    if (patient?.email) {
+      try {
+        await sendReportAccessEmail({
+          toEmail: patient.email,
+          patientName: patient.fullName,
+          accessId: patient.patientCode,
+          password: getPatientAccessPassword(patient),
+          mode: "report-registered"
+        });
+      } catch {
+        // Report generation should not fail if the courtesy email cannot be sent.
+      }
+    }
     router.push(`/reports/${report.id}/edit`);
   };
 
@@ -891,6 +909,7 @@ export function ReportEditorView({ id }: { id: string }) {
   const patient = store.data.patients.find((item) => item.id === draft.patientId);
   const scan = store.data.scans.find((item) => item.id === draft.scanId);
   const ai = store.data.aiResults.find((item) => item.id === draft.aiResultId);
+  const canApprove = store.currentUser.role === "doctor";
 
   const save = async (status: Report["status"] = draft.status) => {
     const next = { ...draft, status };
@@ -934,7 +953,7 @@ export function ReportEditorView({ id }: { id: string }) {
 
   return (
     <>
-      <PageTitle title="Report Editor" subtitle="Doctors can edit and approve. Assistants can save drafts only." />
+      <PageTitle title="Report Editor" subtitle="Doctors can approve final reports. Other roles can save drafts for review." />
       <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
         <Card className="p-5">
           {patient ? <Info label="Patient" value={`${patient.patientCode} - ${patient.fullName}`} /> : null}
@@ -970,10 +989,12 @@ export function ReportEditorView({ id }: { id: string }) {
               Save Draft
             </Button>
             <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("pending_review")}>Needs Review</Button>
-            <Button className="w-full sm:w-auto" onClick={approve}>
-              <CheckCircle2 size={16} />
-              Approve Report
-            </Button>
+            {canApprove ? (
+              <Button className="w-full sm:w-auto" onClick={approve}>
+                <CheckCircle2 size={16} />
+                Approve Report
+              </Button>
+            ) : null}
           </div>
         </Card>
       </div>
@@ -1009,8 +1030,8 @@ export function ReportView({ id }: { id: string }) {
       <Card className="p-6">
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 className="text-xl font-black text-slate-950">AI-Assisted OCT Report</h3>
-            <p className="mt-1 text-sm text-slate-500">Final status depends on doctor/admin approval.</p>
+            <h3 className="text-xl font-black text-slate-950">Doctor-Approved OCT Report</h3>
+            <p className="mt-1 text-sm text-slate-500">Final status depends on doctor approval.</p>
           </div>
           <StatusBadge status={report.status} />
         </div>
@@ -1083,6 +1104,7 @@ export function PatientReportCheckView() {
   }, [normalizedPassword, normalizedAccessId, store.data.patients, store.data.reports]);
   const patient = match ? store.data.patients.find((item) => item.id === match.patientId) : store.data.patients.find((item) => item.patientCode.toLowerCase() === normalizedAccessId);
   const ai = match ? store.data.aiResults.find((item) => item.id === match.aiResultId) : null;
+  const localApprover = match ? store.data.profiles.find((item) => item.id === match.approvedBy) : undefined;
   const publicReport = publicResult?.report;
 
   const checkReport = async () => {
@@ -1128,8 +1150,8 @@ export function PatientReportCheckView() {
             <p className="font-bold text-slate-950">Access flow</p>
             <div className="mt-3 space-y-3 text-sm font-semibold text-slate-600">
               <p>1. Clinic creates and reviews the OCT report.</p>
-              <p>2. Customer receives patient ID with a password like Xisn12H.</p>
-              <p>3. Approved reports can be viewed and downloaded as the official PDF.</p>
+              <p>2. Patient receives an access ID with a password like Xisn12H.</p>
+              <p>3. Approved reports can be viewed, downloaded, and printed.</p>
             </div>
           </div>
         </Card>
@@ -1164,7 +1186,8 @@ export function PatientReportCheckView() {
               <h3 className="mt-3 text-xl font-black text-slate-950">Approved report found</h3>
               <p className="mt-1 text-sm text-slate-500">{publicReport.patientCode} - {publicReport.patientName}</p>
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <Info label="AI prediction" value={publicReport.predictedClass ? `${publicReport.predictedClass} (${Math.round((publicReport.confidence ?? 0) * 100)}%)` : "-"} />
+                <Info label="Results" value={publicReport.result || publicReport.finalDiagnosis || "-"} />
+                <Info label="Approved by" value={doctorDisplayName(publicReport.approvedByName)} />
                 <Info label="Approved at" value={publicReport.approvedAt ? new Date(publicReport.approvedAt).toLocaleString() : "-"} />
                 <Info label="Patient ID" value={publicReport.patientCode} />
               </div>
@@ -1188,17 +1211,45 @@ export function PatientReportCheckView() {
                   <h3 className="mt-3 text-xl font-black text-slate-950">Approved report found</h3>
                   <p className="mt-1 text-sm text-slate-500">{patient?.patientCode} - {patient?.fullName}</p>
                 </div>
-                <Link href={`/reports/${match.id}/view`}>
-                  <Button className="w-full sm:w-auto">
-                    <FileText size={16} />
-                    Show Report
-                  </Button>
-                </Link>
+                <Button
+                  className="w-full sm:w-auto"
+                  variant="secondary"
+                  onClick={() =>
+                    patient
+                      ? downloadPublicReportPdf({
+                          id: match.id,
+                          patientCode: patient.patientCode,
+                          patientName: patient.fullName,
+                          age: patient.age,
+                          gender: patient.gender,
+                          result: match.finalDiagnosis !== "Needs clinical correlation" ? match.finalDiagnosis : ai?.predictedClass ?? "-",
+                          findings: match.findings,
+                          impression: match.impression,
+                          recommendation: match.recommendation,
+                          doctorNotes: match.doctorNotes,
+                          finalDiagnosis: match.finalDiagnosis,
+                          approvedByName: doctorDisplayName(localApprover?.fullName),
+                          approvedAt: match.approvedAt
+                        })
+                      : undefined
+                  }
+                >
+                  <Download size={16} />
+                  Download PDF
+                </Button>
               </div>
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <Info label="AI prediction" value={ai ? `${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)` : "-"} />
+                <Info label="Results" value={match.finalDiagnosis !== "Needs clinical correlation" ? match.finalDiagnosis : ai?.predictedClass ?? "-"} />
+                <Info label="Approved by" value={doctorDisplayName(localApprover?.fullName)} />
                 <Info label="Approved at" value={match.approvedAt ? new Date(match.approvedAt).toLocaleString() : "-"} />
                 <Info label="Patient ID" value={patient?.patientCode ?? "-"} />
+              </div>
+              <div className="mt-5 space-y-4">
+                <ReportSection title="Findings" body={match.findings} />
+                <ReportSection title="Impression" body={match.impression} />
+                <ReportSection title="Recommendation" body={match.recommendation} />
+                <ReportSection title="Doctor Notes" body={match.doctorNotes || "No additional notes."} />
+                <ReportSection title="Final Diagnosis" body={match.finalDiagnosis} />
               </div>
             </div>
           ) : (
@@ -1215,8 +1266,14 @@ export function FeedbackReviewView({ scope = "admin" }: { scope?: "admin" | "hod
   const store = useDemoStore();
   const [entries, setEntries] = useState<FeedbackEntry[]>([]);
   const [filter, setFilter] = useState<"all" | FeedbackEntry["status"]>("all");
+  const [tab, setTab] = useState<"inbox" | "messages">("inbox");
+  const [responses, setResponses] = useState<Record<string, string>>({});
+  const [responseMessage, setResponseMessage] = useState("");
   const canReview = store.currentUser.role === "admin";
-  const visible = entries.filter((entry) => filter === "all" || entry.status === filter);
+  const visible = entries.filter((entry) => {
+    if (tab === "messages" && !(entry.responses?.length)) return false;
+    return filter === "all" || entry.status === filter;
+  });
 
   useEffect(() => {
     setEntries(getFeedbackEntries());
@@ -1226,22 +1283,46 @@ export function FeedbackReviewView({ scope = "admin" }: { scope?: "admin" | "hod
     setEntries(updateFeedbackStatus(id, status));
   };
 
+  const sendResponse = async (entry: FeedbackEntry) => {
+    const body = responses[entry.id]?.trim();
+    if (!body) return;
+    setEntries(addFeedbackResponse(entry.id, { message: body, responderName: store.currentUser.fullName }));
+    setResponses((current) => ({ ...current, [entry.id]: "" }));
+    setResponseMessage("Response saved.");
+    if (entry.email) {
+      try {
+        const result = await sendFeedbackEmail({
+          toEmail: entry.email,
+          patientName: entry.name,
+          feedbackType: entry.type,
+          mode: "response",
+          body
+        });
+        setResponseMessage(result.message);
+      } catch {
+        setResponseMessage("Response saved, but the email could not be sent automatically.");
+      }
+    }
+    window.setTimeout(() => setResponseMessage(""), 2500);
+  };
+
   if (!canReview) return <Missing title="Access restricted" href="/dashboard" label="Back to dashboard" />;
 
   return (
     <>
       <PageTitle
         title="Feedback Inbox"
-        subtitle="Review customer complaints and feedback submitted from the patient access screens."
+        subtitle="Review feedback and complaints, then reply to patients from the message composer."
       />
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+      {responseMessage ? <p className="mb-4 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800">{responseMessage}</p> : null}
+      <div className="mb-5 grid gap-3 lg:grid-cols-3">
         <Card className="p-5">
           <p className="text-sm font-semibold text-slate-500">New feedback</p>
           <p className="mt-2 text-3xl font-black text-slate-950">{entries.filter((entry) => entry.status === "new").length}</p>
         </Card>
         <Card className="p-5">
-          <p className="text-sm font-semibold text-slate-500">Reviewing</p>
-          <p className="mt-2 text-3xl font-black text-slate-950">{entries.filter((entry) => entry.status === "reviewing").length}</p>
+          <p className="text-sm font-semibold text-slate-500">Messages sent</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{entries.reduce((total, entry) => total + (entry.responses?.length ?? 0), 0)}</p>
         </Card>
         <Card className="p-5">
           <p className="text-sm font-semibold text-slate-500">Resolved</p>
@@ -1251,15 +1332,33 @@ export function FeedbackReviewView({ scope = "admin" }: { scope?: "admin" | "hod
       <Card className="p-5">
         <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
           <div>
-            <h3 className="font-black text-slate-950">Feedback and complaints</h3>
-            <p className="mt-1 text-sm text-slate-500">Use status changes to track what has been reviewed.</p>
+            <h3 className="font-black text-slate-950">{tab === "inbox" ? "Feedback and complaints" : "Patient message replies"}</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {tab === "inbox" ? "Use status changes to track what has been reviewed." : "Review replies sent from the clinic to patients."}
+            </p>
           </div>
-          <select className="field sm:w-44" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
-            <option value="all">All</option>
-            <option value="new">New</option>
-            <option value="reviewing">Reviewing</option>
-            <option value="resolved">Resolved</option>
-          </select>
+          <div className="grid gap-2 sm:flex">
+            <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1">
+              <button
+                className={`rounded px-3 py-2 text-sm font-bold ${tab === "inbox" ? "bg-white text-clinic-700 shadow-sm" : "text-slate-500"}`}
+                onClick={() => setTab("inbox")}
+              >
+                Inbox
+              </button>
+              <button
+                className={`rounded px-3 py-2 text-sm font-bold ${tab === "messages" ? "bg-white text-clinic-700 shadow-sm" : "text-slate-500"}`}
+                onClick={() => setTab("messages")}
+              >
+                Messages
+              </button>
+            </div>
+            <select className="field sm:w-44" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
+              <option value="all">All</option>
+              <option value="new">New</option>
+              <option value="reviewing">Reviewing</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
         </div>
       </Card>
       <div className="mt-5 grid gap-4">
@@ -1282,6 +1381,31 @@ export function FeedbackReviewView({ scope = "admin" }: { scope?: "admin" | "hod
             <div className="mt-4 grid gap-2 sm:flex sm:justify-end">
               <Button className="w-full sm:w-auto" variant="secondary" onClick={() => setStatus(entry.id, "reviewing")}>Mark Reviewing</Button>
               <Button className="w-full sm:w-auto" onClick={() => setStatus(entry.id, "resolved")}>Resolve</Button>
+            </div>
+            {entry.responses?.length ? (
+              <div className="mt-5 space-y-3">
+                <h4 className="text-sm font-black uppercase tracking-wide text-slate-500">Message history</h4>
+                {entry.responses.map((response) => (
+                  <div key={response.id} className="rounded-md border border-slate-200 bg-white p-3">
+                    <p className="text-xs font-bold text-slate-500">{response.responderName} | {new Date(response.createdAt).toLocaleString()}</p>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">{response.message}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-4">
+              <Textarea
+                label="Reply to patient"
+                value={responses[entry.id] ?? ""}
+                onChange={(value) => setResponses((current) => ({ ...current, [entry.id]: value }))}
+              />
+              <p className="mt-2 text-xs font-semibold text-slate-500">
+                The email will include a polite heading and sign-off automatically. Write the main reply paragraph here.
+              </p>
+              <Button className="mt-3 w-full sm:w-auto" onClick={() => sendResponse(entry)} disabled={!(responses[entry.id] ?? "").trim()}>
+                <MessageSquare size={16} />
+                Send Response
+              </Button>
             </div>
           </Card>
         ))}
@@ -1607,8 +1731,9 @@ function FeedbackDialog({
     message: ""
   });
   const [registeredId, setRegisteredId] = useState("");
+  const [submitMessage, setSubmitMessage] = useState("");
 
-  const submit = () => {
+  const submit = async () => {
     if (!form.name || !form.message) return;
     const entry = submitFeedback({
       type: form.type,
@@ -1620,6 +1745,19 @@ function FeedbackDialog({
       message: form.message
     });
     setRegisteredId(entry.id);
+    if (entry.email) {
+      try {
+        const result = await sendFeedbackEmail({
+          toEmail: entry.email,
+          patientName: entry.name,
+          feedbackType: entry.type,
+          mode: "registered"
+        });
+        setSubmitMessage(result.message);
+      } catch {
+        setSubmitMessage("Request registered. Acknowledgement email could not be sent automatically.");
+      }
+    }
   };
 
   return (
@@ -1665,6 +1803,7 @@ function FeedbackDialog({
             <CheckCircle2 className="mx-auto text-emerald-600" size={44} />
             <h3 className="mt-4 text-xl font-black text-slate-950">Request registered</h3>
             <p className="mt-2 text-sm font-semibold text-slate-600">Reference ID: {registeredId}</p>
+            {submitMessage ? <p className="mt-2 text-sm font-semibold text-slate-600">{submitMessage}</p> : null}
             <Button className="mt-5" onClick={onClose}>Done</Button>
           </div>
         )}

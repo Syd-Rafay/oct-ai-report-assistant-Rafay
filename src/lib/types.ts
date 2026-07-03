@@ -112,6 +112,14 @@ export type FeedbackEntry = {
   message: string;
   status: "new" | "reviewing" | "resolved";
   createdAt: string;
+  responses?: FeedbackResponse[];
+};
+
+export type FeedbackResponse = {
+  id: string;
+  message: string;
+  responderName: string;
+  createdAt: string;
 };
 
 export type AppData = {
