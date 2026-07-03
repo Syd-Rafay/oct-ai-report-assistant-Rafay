@@ -1128,7 +1128,7 @@ export function PatientReportCheckView() {
             <p className="font-bold text-slate-950">Access flow</p>
             <div className="mt-3 space-y-3 text-sm font-semibold text-slate-600">
               <p>1. Clinic creates and reviews the OCT report.</p>
-              <p>2. Customer receives report ID with a password like Xisn12H.</p>
+              <p>2. Customer receives patient ID with a password like Xisn12H.</p>
               <p>3. Approved reports can be viewed and downloaded as the official PDF.</p>
             </div>
           </div>
@@ -1278,7 +1278,6 @@ export function FeedbackReviewView({ scope = "admin" }: { scope?: "admin" | "hod
               <Info label="Email" value={entry.email || "-"} />
               <Info label="Phone" value={entry.phone || "-"} />
               <Info label="Patient ID" value={entry.patientCode || "-"} />
-              <Info label="Report ID" value={entry.reportId || "-"} />
             </div>
             <div className="mt-4 grid gap-2 sm:flex sm:justify-end">
               <Button className="w-full sm:w-auto" variant="secondary" onClick={() => setStatus(entry.id, "reviewing")}>Mark Reviewing</Button>
