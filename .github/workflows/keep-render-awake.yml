@@ -1,0 +1,19 @@
+name: Keep Render Backend Awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          curl --fail --show-error --silent --max-time 90 \
+            --retry 2 \
+            --retry-delay 10 \
+            https://oct-ai-backend.onrender.com/health
