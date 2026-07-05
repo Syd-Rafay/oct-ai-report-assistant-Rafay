@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -142,6 +143,25 @@ class FeedbackEmailRequest(BaseModel):
     body: str = ""
 
 
+class FeedbackCreateRequest(BaseModel):
+    type: str
+    name: str
+    email: str | None = None
+    phone: str | None = None
+    patient_code: str | None = None
+    report_id: str | None = None
+    message: str
+
+
+class FeedbackStatusRequest(BaseModel):
+    status: str
+
+
+class FeedbackResponseRequest(BaseModel):
+    responder_name: str
+    message: str
+
+
 def basic_oct_image_check(image: Image.Image) -> bool:
     rgb = np.array(image.convert("RGB").resize((300, 300)))
     gray = np.array(image.convert("L").resize((300, 300)))
@@ -215,6 +235,32 @@ def supabase_select(table: str, params: dict[str, str]) -> list[dict[str, Any]]:
             import json
 
             return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Supabase request failed: {detail}") from exc
+
+
+def supabase_write(table: str, payload: dict[str, Any], method: str = "POST", params: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    if not supabase_configured():
+        raise RuntimeError("Supabase service credentials are not configured.")
+
+    query = f"?{urllib.parse.urlencode(params)}" if params else ""
+    request = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/{table}{query}",
+        data=json.dumps(payload).encode("utf-8"),
+        method=method,
+        headers={
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Prefer": "return=representation",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body) if body else []
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Supabase request failed: {detail}") from exc
@@ -490,6 +536,117 @@ def send_feedback_email(input_data: FeedbackEmailRequest):
 
     send_plain_email(input_data.to_email, subject, text_content)
     return {"sent": True, "configured": True, "message": success_message}
+
+
+def map_feedback_entry(row: dict[str, Any], messages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "id": row.get("id", ""),
+        "type": row.get("type", "feedback"),
+        "name": row.get("name", ""),
+        "email": row.get("email") or "",
+        "phone": row.get("phone") or "",
+        "patientCode": row.get("patient_code") or "",
+        "reportId": row.get("report_id") or "",
+        "message": row.get("message", ""),
+        "status": row.get("status", "new"),
+        "createdAt": row.get("created_at", ""),
+        "responses": [
+            {
+                "id": message.get("id", ""),
+                "message": message.get("message", ""),
+                "responderName": message.get("responder_name", ""),
+                "createdAt": message.get("created_at", ""),
+            }
+            for message in messages
+            if message.get("feedback_id") == row.get("id")
+        ],
+    }
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@app.get("/feedback")
+def list_feedback():
+    try:
+        entries = supabase_select("feedback_entries", {"select": "*", "order": "created_at.desc"})
+        messages = supabase_select("feedback_messages", {"select": "*", "order": "created_at.desc"})
+        return {"configured": True, "entries": [map_feedback_entry(entry, messages) for entry in entries]}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/feedback")
+def create_feedback(input_data: FeedbackCreateRequest):
+    feedback_type = input_data.type.strip().lower()
+    if feedback_type not in {"feedback", "complaint"}:
+        raise HTTPException(status_code=400, detail="Feedback type must be feedback or complaint.")
+    if not input_data.name.strip() or not input_data.message.strip():
+        raise HTTPException(status_code=400, detail="Name and message are required.")
+
+    try:
+        rows = supabase_write(
+            "feedback_entries",
+            {
+                "type": feedback_type,
+                "name": input_data.name.strip(),
+                "email": (input_data.email or "").strip() or None,
+                "phone": (input_data.phone or "").strip() or None,
+                "patient_code": (input_data.patient_code or "").strip() or None,
+                "report_id": (input_data.report_id or "").strip() or None,
+                "message": input_data.message.strip(),
+                "status": "new",
+            },
+        )
+        entry = rows[0] if rows else {}
+        return {"configured": True, "entry": map_feedback_entry(entry, [])}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.patch("/feedback/{feedback_id}/status")
+def update_feedback_status(feedback_id: str, input_data: FeedbackStatusRequest):
+    status = input_data.status.strip().lower()
+    if status not in {"new", "reviewing", "resolved"}:
+        raise HTTPException(status_code=400, detail="Invalid feedback status.")
+
+    try:
+        rows = supabase_write(
+            "feedback_entries",
+            {"status": status, "updated_at": utc_now()},
+            method="PATCH",
+            params={"id": f"eq.{feedback_id}"},
+        )
+        entry = rows[0] if rows else {}
+        return {"configured": True, "entry": map_feedback_entry(entry, [])}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/feedback/{feedback_id}/responses")
+def add_feedback_response(feedback_id: str, input_data: FeedbackResponseRequest):
+    if not input_data.responder_name.strip() or not input_data.message.strip():
+        raise HTTPException(status_code=400, detail="Responder name and message are required.")
+
+    try:
+        message_rows = supabase_write(
+            "feedback_messages",
+            {
+                "feedback_id": feedback_id,
+                "responder_name": input_data.responder_name.strip(),
+                "message": input_data.message.strip(),
+            },
+        )
+        supabase_write(
+            "feedback_entries",
+            {"status": "resolved", "updated_at": utc_now()},
+            method="PATCH",
+            params={"id": f"eq.{feedback_id}"},
+        )
+        return {"configured": True, "response": message_rows[0] if message_rows else {}}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/predict")

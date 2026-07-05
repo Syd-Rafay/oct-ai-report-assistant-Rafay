@@ -401,7 +401,17 @@ export function DashboardView() {
   const today = new Date().toISOString().slice(0, 10);
   const todayReports = store.data.reports.filter((report) => report.createdAt.startsWith(today)).length;
   useEffect(() => {
-    setFeedbackCount(getFeedbackEntries().filter((entry) => entry.status !== "resolved").length);
+    let cancelled = false;
+    getFeedbackEntries()
+      .then((entries) => {
+        if (!cancelled) setFeedbackCount(entries.filter((entry) => entry.status !== "resolved").length);
+      })
+      .catch(() => {
+        if (!cancelled) setFeedbackCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
   const stats = [
     ["Total patients", store.data.patients.length],
@@ -1388,6 +1398,7 @@ export function FeedbackReviewView({ scope = "admin" }: { scope?: "admin" | "hod
   const [tab, setTab] = useState<"inbox" | "messages">("inbox");
   const [responses, setResponses] = useState<Record<string, string>>({});
   const [responseMessage, setResponseMessage] = useState("");
+  const [loading, setLoading] = useState(true);
   const canReview = store.currentUser.role === "admin";
   const visible = entries.filter((entry) => {
     if (tab === "messages" && !(entry.responses?.length)) return false;
@@ -1395,17 +1406,41 @@ export function FeedbackReviewView({ scope = "admin" }: { scope?: "admin" | "hod
   });
 
   useEffect(() => {
-    setEntries(getFeedbackEntries());
+    let cancelled = false;
+    setLoading(true);
+    getFeedbackEntries()
+      .then((items) => {
+        if (!cancelled) setEntries(items);
+      })
+      .catch(() => {
+        if (!cancelled) setResponseMessage("Could not load feedback from Supabase.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const setStatus = (id: string, status: FeedbackEntry["status"]) => {
-    setEntries(updateFeedbackStatus(id, status));
+  const setStatus = async (id: string, status: FeedbackEntry["status"]) => {
+    try {
+      setEntries(await updateFeedbackStatus(id, status));
+    } catch {
+      setResponseMessage("Could not update feedback status in Supabase.");
+    }
   };
 
   const sendResponse = async (entry: FeedbackEntry) => {
     const body = responses[entry.id]?.trim();
     if (!body) return;
-    setEntries(addFeedbackResponse(entry.id, { message: body, responderName: store.currentUser.fullName }));
+    try {
+      setEntries(await addFeedbackResponse(entry.id, { message: body, responderName: store.currentUser.fullName }));
+    } catch {
+      setResponseMessage("Could not save the response in Supabase.");
+      window.setTimeout(() => setResponseMessage(""), 2500);
+      return;
+    }
     setResponses((current) => ({ ...current, [entry.id]: "" }));
     setResponseMessage("Response saved.");
     if (entry.email) {
@@ -1528,7 +1563,8 @@ export function FeedbackReviewView({ scope = "admin" }: { scope?: "admin" | "hod
             </div>
           </Card>
         ))}
-        {visible.length === 0 ? <EmptyState title="No feedback found" body="Submitted feedback and complaints will appear here for admin and HOD review." /> : null}
+        {loading ? <EmptyState title="Loading feedback" body="Fetching feedback and complaints from Supabase." /> : null}
+        {!loading && visible.length === 0 ? <EmptyState title="No feedback found" body="Submitted feedback and complaints will appear here for admin and HOD review." /> : null}
       </div>
     </>
   );
@@ -1851,19 +1887,30 @@ function FeedbackDialog({
   });
   const [registeredId, setRegisteredId] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const submit = async () => {
     if (!form.name || !form.message) return;
-    const entry = submitFeedback({
-      type: form.type,
-      name: form.name,
-      email: form.email || undefined,
-      phone: form.phone || undefined,
-      patientCode: form.patientCode || undefined,
-      reportId: form.reportId || undefined,
-      message: form.message
-    });
+    setSubmitting(true);
+    setSubmitMessage("");
+    let entry: FeedbackEntry;
+    try {
+      entry = await submitFeedback({
+        type: form.type,
+        name: form.name,
+        email: form.email || undefined,
+        phone: form.phone || undefined,
+        patientCode: form.patientCode || undefined,
+        reportId: form.reportId || undefined,
+        message: form.message
+      });
+    } catch {
+      setSubmitting(false);
+      setSubmitMessage("Could not register this request in Supabase. Please try again.");
+      return;
+    }
     setRegisteredId(entry.id);
+    setSubmitting(false);
     if (entry.email) {
       try {
         const result = await sendFeedbackEmail({
@@ -1911,9 +1958,10 @@ function FeedbackDialog({
                 <Field label="Report ID optional" value={form.reportId} onChange={(value) => setForm({ ...form, reportId: value })} />
               </div>
               <Textarea label="Message" minRowsClass="min-h-40" value={form.message} onChange={(value) => setForm({ ...form, message: value })} />
-              <Button className="w-full" onClick={submit} disabled={!form.name || !form.message}>
+              {submitMessage ? <p className="rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{submitMessage}</p> : null}
+              <Button className="w-full" onClick={submit} disabled={!form.name || !form.message || submitting}>
                 <Inbox size={16} />
-                Register
+                {submitting ? "Registering..." : "Register"}
               </Button>
             </div>
           </>

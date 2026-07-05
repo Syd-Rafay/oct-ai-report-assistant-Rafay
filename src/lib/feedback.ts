@@ -4,6 +4,21 @@ import type { FeedbackEntry, FeedbackResponse } from "./types";
 
 const FEEDBACK_KEY = "oct-ai-report-assistant-feedback-v1";
 
+function backendBaseUrl() {
+  const url = process.env.NEXT_PUBLIC_AI_BACKEND_URL;
+  if (!url) throw new Error("AI backend URL is not configured.");
+  return url.replace(/\/$/, "");
+}
+
+async function readError(response: Response, fallback: string) {
+  try {
+    const body = await response.json();
+    return body.detail || body.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function readEntries(): FeedbackEntry[] {
   if (typeof window === "undefined") return [];
   const raw = window.localStorage.getItem(FEEDBACK_KEY);
@@ -15,46 +30,59 @@ function readEntries(): FeedbackEntry[] {
   }
 }
 
-function writeEntries(entries: FeedbackEntry[]) {
-  window.localStorage.setItem(FEEDBACK_KEY, JSON.stringify(entries));
+export async function getFeedbackEntries() {
+  try {
+    const response = await fetch(`${backendBaseUrl()}/feedback`, { cache: "no-store" });
+    if (!response.ok) throw new Error(await readError(response, "Could not load feedback."));
+    const body = await response.json();
+    return (body.entries ?? []) as FeedbackEntry[];
+  } catch {
+    return readEntries();
+  }
 }
 
-export function getFeedbackEntries() {
-  return readEntries();
+export async function submitFeedback(input: Omit<FeedbackEntry, "id" | "status" | "createdAt">) {
+  try {
+    const response = await fetch(`${backendBaseUrl()}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: input.type,
+        name: input.name,
+        email: input.email || null,
+        phone: input.phone || null,
+        patient_code: input.patientCode || null,
+        report_id: input.reportId || null,
+        message: input.message
+      })
+    });
+    if (!response.ok) throw new Error(await readError(response, "Could not submit feedback."));
+    const body = await response.json();
+    return body.entry as FeedbackEntry;
+  } catch (error) {
+    throw error;
+  }
 }
 
-export function submitFeedback(input: Omit<FeedbackEntry, "id" | "status" | "createdAt">) {
-  const entry: FeedbackEntry = {
-    ...input,
-    id: `fb_${Math.random().toString(36).slice(2, 10)}`,
-    status: "new",
-    createdAt: new Date().toISOString()
-  };
-  writeEntries([entry, ...readEntries()]);
-  return entry;
+export async function updateFeedbackStatus(id: string, status: FeedbackEntry["status"]) {
+  const response = await fetch(`${backendBaseUrl()}/feedback/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+  if (!response.ok) throw new Error(await readError(response, "Could not update feedback status."));
+  return getFeedbackEntries();
 }
 
-export function updateFeedbackStatus(id: string, status: FeedbackEntry["status"]) {
-  const entries = readEntries().map((entry) => (entry.id === id ? { ...entry, status } : entry));
-  writeEntries(entries);
-  return entries;
-}
-
-export function addFeedbackResponse(id: string, input: Omit<FeedbackResponse, "id" | "createdAt">) {
-  const response: FeedbackResponse = {
-    ...input,
-    id: `msg_${Math.random().toString(36).slice(2, 10)}`,
-    createdAt: new Date().toISOString()
-  };
-  const entries = readEntries().map((entry) =>
-    entry.id === id
-      ? {
-          ...entry,
-          status: "resolved" as const,
-          responses: [response, ...(entry.responses ?? [])]
-        }
-      : entry
-  );
-  writeEntries(entries);
-  return entries;
+export async function addFeedbackResponse(id: string, input: Omit<FeedbackResponse, "id" | "createdAt">) {
+  const response = await fetch(`${backendBaseUrl()}/feedback/${id}/responses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      responder_name: input.responderName,
+      message: input.message
+    })
+  });
+  if (!response.ok) throw new Error(await readError(response, "Could not save feedback response."));
+  return getFeedbackEntries();
 }
