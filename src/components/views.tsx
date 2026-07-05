@@ -25,6 +25,7 @@ import { Button, Card, CardHeader, EmptyState, SafetyNotice, StatusBadge } from 
 import { predictOCT } from "@/lib/ai-api";
 import { useDemoStore } from "@/lib/demo-store";
 import { addFeedbackResponse, getFeedbackEntries, submitFeedback, updateFeedbackStatus } from "@/lib/feedback";
+import { prepareScanImages } from "@/lib/image-processing";
 import { downloadPublicReportPdf, downloadReportPdf } from "@/lib/pdf";
 import { checkPublicReport, getPatientAccessPassword, sendFeedbackEmail, sendReportAccessEmail, type PublicReportResult } from "@/lib/report-access";
 import { reportTemplates } from "@/lib/report-templates";
@@ -723,33 +724,51 @@ export function UploadScanView() {
   const [scanNotes, setScanNotes] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [predictionFile, setPredictionFile] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [analysisWarning, setAnalysisWarning] = useState("");
+  const [fileNote, setFileNote] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const onFile = (file?: File) => {
+  const onFile = async (file?: File) => {
     if (!file) return;
     if (!["image/jpeg", "image/png"].includes(file.type)) {
       setError("Only JPG, JPEG, and PNG OCT images are supported.");
       return;
     }
     setError("");
-    setSelectedFile(file);
-    const reader = new FileReader();
-    reader.onload = () => setImageUrl(String(reader.result));
-    reader.readAsDataURL(file);
+    setAnalysisWarning("");
+    setFileNote("");
+    try {
+      const prepared = await prepareScanImages(file);
+      setSelectedFile(prepared.storageFile);
+      setPredictionFile(prepared.predictionFile);
+      if (prepared.storageFile.size < prepared.originalSize || prepared.predictionFile.size < prepared.originalSize) {
+        setFileNote(
+          `Optimized image for faster analysis: ${(prepared.originalSize / 1024 / 1024).toFixed(1)} MB -> ${(prepared.predictionSize / 1024 / 1024).toFixed(1)} MB.`
+        );
+      }
+      const reader = new FileReader();
+      reader.onload = () => setImageUrl(String(reader.result));
+      reader.readAsDataURL(prepared.storageFile);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not prepare the selected image.");
+      setSelectedFile(null);
+      setPredictionFile(null);
+      setImageUrl("");
+    }
   };
 
   const submit = async () => {
     setError("");
     setAnalysisWarning("");
-    if (!patientId || !imageUrl || !selectedFile) {
+    if (!patientId || !imageUrl || !selectedFile || !predictionFile) {
       setError("Please select a patient and upload an OCT image.");
       return;
     }
     setLoading(true);
     try {
-      const prediction = await predictOCT(selectedFile);
+      const prediction = await predictOCT(predictionFile);
       if (!prediction.is_valid_oct) {
         const message =
           prediction.prediction === "INVALID_IMAGE"
@@ -793,6 +812,7 @@ export function UploadScanView() {
             <input className="hidden" type="file" accept=".jpg,.jpeg,.png" onChange={(event) => onFile(event.target.files?.[0])} />
           </label>
           {error ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
+          {fileNote ? <p className="mt-4 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800">{fileNote}</p> : null}
           {analysisWarning ? <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{analysisWarning}</p> : null}
           <div className="mt-5 flex justify-end">
             <Button className="w-full sm:w-auto" onClick={submit} disabled={loading}>

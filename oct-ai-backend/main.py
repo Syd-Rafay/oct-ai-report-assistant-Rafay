@@ -2,6 +2,7 @@ import os
 import json
 import smtplib
 import ssl
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -59,6 +60,7 @@ app.add_middleware(
 )
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.set_num_threads(int(os.getenv("TORCH_NUM_THREADS", "2")))
 
 preprocess = transforms.Compose(
     [
@@ -492,6 +494,7 @@ def send_feedback_email(input_data: FeedbackEmailRequest):
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
+    started_at = time.perf_counter()
     if model is None:
         raise HTTPException(
             status_code=503,
@@ -523,9 +526,10 @@ async def predict(file: UploadFile = File(...)):
             }
 
         image_tensor = preprocess(image).unsqueeze(0).to(device)
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = model(image_tensor)
             softmax = torch.softmax(logits, dim=1).squeeze(0).cpu()
+        inference_time_ms = round((time.perf_counter() - started_at) * 1000)
 
         probabilities = {
             class_name: round(float(softmax[index]), 4)
@@ -541,6 +545,7 @@ async def predict(file: UploadFile = File(...)):
                 "probabilities": probabilities,
                 "model_name": MODEL_NAME,
                 "model_version": MODEL_VERSION,
+                "inference_time_ms": inference_time_ms,
                 "is_valid_oct": False,
                 "disclaimer": LOW_CONFIDENCE_DISCLAIMER,
             }
@@ -551,6 +556,7 @@ async def predict(file: UploadFile = File(...)):
             "probabilities": probabilities,
             "model_name": MODEL_NAME,
             "model_version": MODEL_VERSION,
+            "inference_time_ms": inference_time_ms,
             "is_valid_oct": True,
             "disclaimer": DISCLAIMER,
         }

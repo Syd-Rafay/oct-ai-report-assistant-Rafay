@@ -9,6 +9,7 @@ export async function predictOCT(file: File): Promise<BackendPrediction> {
 
   const formData = new FormData();
   formData.append("file", file);
+  const startedAt = performance.now();
 
   let response: Response;
   try {
@@ -33,5 +34,9 @@ export async function predictOCT(file: File): Promise<BackendPrediction> {
     throw new Error(detail);
   }
 
-  return response.json();
+  const prediction = (await response.json()) as BackendPrediction;
+  return {
+    ...prediction,
+    request_time_ms: Math.round(performance.now() - startedAt),
+  };
 }

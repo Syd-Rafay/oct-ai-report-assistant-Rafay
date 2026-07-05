@@ -66,6 +66,8 @@ export type BackendPrediction = {
   model_version: string;
   is_valid_oct?: boolean;
   disclaimer: string;
+  request_time_ms?: number;
+  inference_time_ms?: number;
 };
 
 export function isDiseaseClass(value: PredictionClass): value is DiseaseClass {
