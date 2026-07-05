@@ -9,6 +9,7 @@ import {
   ClipboardList,
   FileClock,
   Inbox,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Search,
@@ -27,7 +28,8 @@ const navItems = [
   { href: "/patients/search", label: "Search Patient", icon: Search },
   { href: "/scans/upload", label: "Upload Scan", icon: Upload },
   { href: "/reports/check", label: "Check Report", icon: ClipboardList },
-  { href: "/reports/history", label: "Report History", icon: FileClock }
+  { href: "/reports/history", label: "Report History", icon: FileClock },
+  { href: "/change-password", label: "Change Password", icon: KeyRound }
 ];
 
 const adminItems = [

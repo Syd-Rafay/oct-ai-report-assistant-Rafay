@@ -101,7 +101,7 @@ export function LoginView() {
       router.push("/dashboard");
     } catch (err) {
       const text = err instanceof Error ? err.message : "Invalid login.";
-      if (/account created/i.test(text)) {
+      if (/account created|account request submitted/i.test(text)) {
         setMessage(text);
       } else {
         setError(text);
@@ -313,6 +313,68 @@ export function ResetPasswordView() {
         </>
       }
     />
+  );
+}
+
+export function ChangePasswordView() {
+  const store = useDemoStore();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    setError("");
+    setMessage("");
+    if (newPassword.length < 6) {
+      setError("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("New password and confirm password do not match.");
+      return;
+    }
+    if (currentPassword === newPassword) {
+      setError("New password must be different from the current password.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await store.changePassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage("Password changed successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <PageTitle
+        title="Change Password"
+        subtitle="Update your clinical account password after confirming your current password."
+      />
+      <Card className="max-w-xl p-5">
+        <div className="space-y-4">
+          <Field label="Current password" type="password" value={currentPassword} onChange={setCurrentPassword} />
+          <Field label="New password" type="password" value={newPassword} onChange={setNewPassword} />
+          <Field label="Confirm new password" type="password" value={confirmPassword} onChange={setConfirmPassword} />
+          {error ? <p className="rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
+          {message ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{message}</p> : null}
+          <Button onClick={submit} disabled={loading || !currentPassword || !newPassword || !confirmPassword}>
+            {loading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+            Change password
+          </Button>
+        </div>
+      </Card>
+    </>
   );
 }
 

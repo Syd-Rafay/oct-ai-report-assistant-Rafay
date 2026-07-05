@@ -600,8 +600,20 @@ export function useDemoStore() {
     },
     async signUp(input: { email: string; password: string; fullName: string; role: Role; department: string; doctorId?: string }) {
       if (!supabase) throw new Error("Supabase is not configured.");
+      const normalizedEmail = input.email.trim().toLowerCase();
+      if (input.password.length < 6) throw new Error("Password must be at least 6 characters.");
+
+      const { data: existingProfile } = await supabase
+        .from("profiles")
+        .select("id")
+        .ilike("email", normalizedEmail)
+        .maybeSingle();
+      if (existingProfile) {
+        throw new Error("An account with this email already exists. Please sign in or use Forgot password.");
+      }
+
       const { data: signUpData, error } = await supabase.auth.signUp({
-        email: input.email,
+        email: normalizedEmail,
         password: input.password,
         options: {
           data: {
@@ -615,9 +627,13 @@ export function useDemoStore() {
       });
 
       if (error) throw new Error(error.message);
+      const identityCount = signUpData.user?.identities?.length ?? 0;
+      if (signUpData.user && identityCount === 0) {
+        throw new Error("An account with this email already exists. Please sign in or use Forgot password.");
+      }
       const authUser = signUpData.session?.user ?? null;
       if (!authUser) {
-        throw new Error("Account created. Confirm the email from Supabase, then sign in.");
+        throw new Error("Account request submitted. Confirm the email from Supabase, then wait for administrator approval.");
       }
 
       await ensureProfile(authUser);
@@ -625,7 +641,7 @@ export function useDemoStore() {
       await supabase.auth.signOut();
       setSessionUser(null);
       setData(emptyData);
-      throw new Error("Account created. Confirm your email if needed, then wait for approval from raahymm@gmail.com.");
+      throw new Error("Account request submitted. Confirm your email if needed, then wait for approval from raahymm@gmail.com.");
     },
     async resetPassword(email: string) {
       if (!supabase) throw new Error("Supabase is not configured.");
@@ -637,6 +653,22 @@ export function useDemoStore() {
       if (!supabase) throw new Error("Supabase is not configured.");
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw new Error(error.message);
+    },
+    async changePassword(currentPassword: string, newPassword: string) {
+      if (!supabase) throw new Error("Supabase is not configured.");
+      const email = currentUser.email;
+      if (!email) throw new Error("No signed-in email was found.");
+      if (newPassword.length < 6) throw new Error("New password must be at least 6 characters.");
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+      if (signInError) throw new Error("Current password is incorrect.");
+
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw new Error(error.message);
+      await insertAudit(currentUser.id, "Password changed", "profile", currentUser.id, "User changed password internally");
     },
     async logout() {
       if (supabase) await supabase.auth.signOut();
