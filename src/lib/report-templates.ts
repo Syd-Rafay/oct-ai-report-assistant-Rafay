@@ -1,4 +1,5 @@
 import type { DiseaseClass } from "./types";
+import { supabase } from "./supabase";
 
 export const safetyDisclaimer =
   "AI-assisted preliminary result. Requires doctor review.";
@@ -51,7 +52,14 @@ export const reportTemplates: Record<
 
 const TEMPLATE_STORAGE_KEY = "oct-ai-report-assistant-report-templates-v1";
 
-export function getReportTemplates() {
+type DbReportTemplate = {
+  disease_class: DiseaseClass;
+  findings: string | null;
+  impression: string | null;
+  recommendation: string | null;
+};
+
+function readLocalReportTemplates() {
   if (typeof window === "undefined") return reportTemplates;
   const raw = window.localStorage.getItem(TEMPLATE_STORAGE_KEY);
   if (!raw) return reportTemplates;
@@ -62,6 +70,54 @@ export function getReportTemplates() {
   }
 }
 
-export function saveReportTemplates(templates: Record<DiseaseClass, ReportTemplate>) {
+function writeLocalReportTemplates(templates: Record<DiseaseClass, ReportTemplate>) {
+  if (typeof window === "undefined") return;
   window.localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates));
+}
+
+function mapTemplateRows(rows: DbReportTemplate[]) {
+  const savedTemplates = rows.reduce((acc, row) => {
+    acc[row.disease_class] = {
+      findings: row.findings ?? "",
+      impression: row.impression ?? "",
+      recommendation: row.recommendation ?? ""
+    };
+    return acc;
+  }, {} as Partial<Record<DiseaseClass, ReportTemplate>>);
+
+  return { ...reportTemplates, ...savedTemplates };
+}
+
+export async function getReportTemplates() {
+  if (!supabase) return readLocalReportTemplates();
+
+  const { data, error } = await supabase
+    .from("report_templates")
+    .select("disease_class,findings,impression,recommendation")
+    .order("disease_class", { ascending: true });
+
+  if (error) {
+    console.warn("Could not load report templates from Supabase.", error.message);
+    return readLocalReportTemplates();
+  }
+
+  const templates = mapTemplateRows((data ?? []) as DbReportTemplate[]);
+  writeLocalReportTemplates(templates);
+  return templates;
+}
+
+export async function saveReportTemplates(templates: Record<DiseaseClass, ReportTemplate>) {
+  writeLocalReportTemplates(templates);
+  if (!supabase) return;
+
+  const rows = Object.entries(templates).map(([diseaseClass, template]) => ({
+    disease_class: diseaseClass,
+    findings: template.findings,
+    impression: template.impression,
+    recommendation: template.recommendation,
+    updated_at: new Date().toISOString()
+  }));
+
+  const { error } = await supabase.from("report_templates").upsert(rows, { onConflict: "disease_class" });
+  if (error) throw new Error(error.message);
 }

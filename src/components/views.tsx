@@ -1706,8 +1706,10 @@ export function AdminUsersView() {
 }
 
 export function TemplatesView() {
-  const [templates, setTemplates] = useState(() => getReportTemplates());
+  const [templates, setTemplates] = useState(reportTemplates);
   const [saved, setSaved] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [medicine, setMedicine] = useState({
     template: "DME" as DiseaseClass,
     name: "",
@@ -1728,18 +1730,50 @@ export function TemplatesView() {
     }));
   };
 
-  const saveTemplates = () => {
-    saveReportTemplates(templates);
-    setSaved("Default report templates saved.");
-    window.setTimeout(() => setSaved(""), 2000);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getReportTemplates()
+      .then((loadedTemplates) => {
+        if (!cancelled) setTemplates(loadedTemplates);
+      })
+      .catch((err) => {
+        if (!cancelled) setSaved(err instanceof Error ? err.message : "Could not load templates from Supabase.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveTemplates = async () => {
+    setSaving(true);
+    try {
+      await saveReportTemplates(templates);
+      setSaved("Default report templates saved to Supabase.");
+    } catch (err) {
+      setSaved(err instanceof Error ? err.message : "Could not save templates to Supabase.");
+    } finally {
+      setSaving(false);
+      window.setTimeout(() => setSaved(""), 2500);
+    }
   };
 
-  const resetTemplates = () => {
+  const resetTemplates = async () => {
     if (!window.confirm("Reset report templates to the original defaults?")) return;
     setTemplates(reportTemplates);
-    saveReportTemplates(reportTemplates);
-    setSaved("Templates reset to defaults.");
-    window.setTimeout(() => setSaved(""), 2000);
+    setSaving(true);
+    try {
+      await saveReportTemplates(reportTemplates);
+      setSaved("Templates reset to defaults in Supabase.");
+    } catch (err) {
+      setSaved(err instanceof Error ? err.message : "Could not reset templates in Supabase.");
+    } finally {
+      setSaving(false);
+      window.setTimeout(() => setSaved(""), 2500);
+    }
   };
 
   const addMedicineBlock = () => {
@@ -1773,14 +1807,15 @@ export function TemplatesView() {
         subtitle="Edit the default draft text doctors receive when AI-generated reports are created."
         action={
           <div className="grid gap-2 sm:flex">
-            <Button className="w-full sm:w-auto" variant="secondary" onClick={resetTemplates}>Reset Defaults</Button>
-            <Button className="w-full sm:w-auto" onClick={saveTemplates}>
-              <Save size={16} />
-              Save Templates
+            <Button className="w-full sm:w-auto" variant="secondary" onClick={resetTemplates} disabled={saving}>Reset Defaults</Button>
+            <Button className="w-full sm:w-auto" onClick={saveTemplates} disabled={saving}>
+              {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+              {saving ? "Saving..." : "Save Templates"}
             </Button>
           </div>
         }
       />
+      {loading ? <p className="mb-4 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800">Loading templates from Supabase...</p> : null}
       {saved ? <p className="mb-4 rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{saved}</p> : null}
       <Card className="mb-5 p-5">
         <CardHeader title="Prescription Block" subtitle="Add reusable medicine instructions to a disease template without copying patient or hospital details." />

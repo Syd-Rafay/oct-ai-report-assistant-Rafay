@@ -898,7 +898,7 @@ export function useDemoStore() {
       if (existing) return existing;
 
       if (mode === "supabase" && supabase) {
-        const template = getReportTemplates()[aiResult.predictedClass];
+        const template = (await getReportTemplates())[aiResult.predictedClass];
         const { data: row, error } = await supabase
           .from("reports")
           .insert({
@@ -928,7 +928,7 @@ export function useDemoStore() {
         patientId: scan.patientId,
         scanId: scan.id,
         aiResultId: aiResult.id,
-        ...getReportTemplates()[aiResult.predictedClass],
+        ...(await getReportTemplates())[aiResult.predictedClass],
         doctorNotes: patient?.clinicalNotes ?? "",
         finalDiagnosis: "Needs clinical correlation",
         status: "draft",
