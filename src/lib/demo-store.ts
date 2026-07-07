@@ -644,16 +644,6 @@ export function useDemoStore() {
       setData(emptyData);
       throw new Error("Account request submitted. Confirm your email if needed, then wait for approval from raahymm@gmail.com.");
     },
-    async signInWithGoogle() {
-      if (!supabase) throw new Error("Supabase is not configured.");
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/dashboard`
-        }
-      });
-      if (error) throw new Error(error.message);
-    },
     async resetPassword(email: string) {
       if (!supabase) throw new Error("Supabase is not configured.");
       const redirectTo = `${window.location.origin}/reset-password`;

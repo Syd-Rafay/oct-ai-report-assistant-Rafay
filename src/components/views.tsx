@@ -119,18 +119,6 @@ export function LoginView() {
     }
   };
 
-  const continueWithGoogle = async () => {
-    setError("");
-    setMessage("");
-    setLoading(true);
-    try {
-      await store.signInWithGoogle();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start Google sign-in.");
-      setLoading(false);
-    }
-  };
-
   return (
     <main className="grid min-h-screen bg-slate-50 lg:grid-cols-[1fr_520px]">
       <section className="hidden bg-[linear-gradient(135deg,#0f6170,#2563eb)] px-14 py-16 text-white lg:flex lg:flex-col lg:justify-between">
@@ -230,9 +218,6 @@ export function LoginView() {
             <Button className="w-full" onClick={submit} disabled={loading || !email || !password}>
               {loading ? <Loader2 className="animate-spin" size={16} /> : null}
               {authMode === "signin" ? "Sign in" : "Request access"}
-            </Button>
-            <Button className="w-full" variant="secondary" onClick={continueWithGoogle} disabled={loading}>
-              Continue with Google
             </Button>
             <div className="flex flex-wrap justify-between gap-3 text-sm">
               <Link href="/forgot-password" className="font-semibold text-clinic-700">
