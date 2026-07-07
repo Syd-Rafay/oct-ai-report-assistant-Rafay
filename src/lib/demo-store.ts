@@ -601,6 +601,7 @@ export function useDemoStore() {
     async signUp(input: { email: string; password: string; fullName: string; role: Role; department: string; doctorId?: string }) {
       if (!supabase) throw new Error("Supabase is not configured.");
       const normalizedEmail = input.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(normalizedEmail)) throw new Error("Enter a valid email address.");
       if (input.password.length < 6) throw new Error("Password must be at least 6 characters.");
 
       const { data: existingProfile } = await supabase
@@ -642,6 +643,16 @@ export function useDemoStore() {
       setSessionUser(null);
       setData(emptyData);
       throw new Error("Account request submitted. Confirm your email if needed, then wait for approval from raahymm@gmail.com.");
+    },
+    async signInWithGoogle() {
+      if (!supabase) throw new Error("Supabase is not configured.");
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`
+        }
+      });
+      if (error) throw new Error(error.message);
     },
     async resetPassword(email: string) {
       if (!supabase) throw new Error("Supabase is not configured.");

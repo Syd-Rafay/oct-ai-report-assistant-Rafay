@@ -168,6 +168,9 @@ def basic_oct_image_check(image: Image.Image) -> bool:
 
     contrast = float(gray.std())
     brightness = float(gray.mean())
+    dark_ratio = float((gray < 45).mean())
+    very_bright_ratio = float((gray > 235).mean())
+    midtone_ratio = float(((gray >= 45) & (gray <= 220)).mean())
 
     red_green = np.abs(rgb[:, :, 0].astype(float) - rgb[:, :, 1].astype(float)).mean()
     green_blue = np.abs(rgb[:, :, 1].astype(float) - rgb[:, :, 2].astype(float)).mean()
@@ -177,6 +180,14 @@ def basic_oct_image_check(image: Image.Image) -> bool:
         return False
 
     if brightness < 10 or brightness > 245:
+        return False
+
+    # Reject mostly white documents, circuit diagrams, and clean screenshots. OCT
+    # B-scans normally contain substantial dark background plus a noisy retinal band.
+    if brightness > 190 and very_bright_ratio > 0.45:
+        return False
+
+    if dark_ratio < 0.08 and midtone_ratio < 0.40:
         return False
 
     # OCT B-scans are usually grayscale-like. Strong color differences often mean
@@ -567,6 +578,13 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def feedback_error_detail(error: RuntimeError) -> str:
+    message = str(error)
+    if "feedback_entries" in message or "feedback_messages" in message or "relation" in message:
+        return "Feedback storage is not set up yet. Run supabase/feedback.sql in the Supabase SQL editor, then try again."
+    return message
+
+
 @app.get("/feedback")
 def list_feedback():
     try:
@@ -574,7 +592,7 @@ def list_feedback():
         messages = supabase_select("feedback_messages", {"select": "*", "order": "created_at.desc"})
         return {"configured": True, "entries": [map_feedback_entry(entry, messages) for entry in entries]}
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=feedback_error_detail(exc)) from exc
 
 
 @app.post("/feedback")
@@ -602,7 +620,7 @@ def create_feedback(input_data: FeedbackCreateRequest):
         entry = rows[0] if rows else {}
         return {"configured": True, "entry": map_feedback_entry(entry, [])}
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=feedback_error_detail(exc)) from exc
 
 
 @app.patch("/feedback/{feedback_id}/status")
@@ -621,7 +639,7 @@ def update_feedback_status(feedback_id: str, input_data: FeedbackStatusRequest):
         entry = rows[0] if rows else {}
         return {"configured": True, "entry": map_feedback_entry(entry, [])}
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=feedback_error_detail(exc)) from exc
 
 
 @app.post("/feedback/{feedback_id}/responses")
@@ -646,7 +664,7 @@ def add_feedback_response(feedback_id: str, input_data: FeedbackResponseRequest)
         )
         return {"configured": True, "response": message_rows[0] if message_rows else {}}
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=feedback_error_detail(exc)) from exc
 
 
 @app.post("/predict")

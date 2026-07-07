@@ -66,6 +66,10 @@ function patientResult(result?: string, fallback?: string) {
   return result && result !== "Needs clinical correlation" ? result : fallback && fallback !== "Needs clinical correlation" ? fallback : "-";
 }
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(value.trim());
+}
+
 export function LoginView() {
   const router = useRouter();
   const store = useDemoStore();
@@ -84,6 +88,10 @@ export function LoginView() {
   const submit = async () => {
     setError("");
     setMessage("");
+    if (!isValidEmail(email)) {
+      setError("Enter a valid email address.");
+      return;
+    }
     setLoading(true);
     try {
       if (authMode === "signup") {
@@ -107,6 +115,18 @@ export function LoginView() {
         setError(text);
       }
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const continueWithGoogle = async () => {
+    setError("");
+    setMessage("");
+    setLoading(true);
+    try {
+      await store.signInWithGoogle();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start Google sign-in.");
       setLoading(false);
     }
   };
@@ -210,6 +230,9 @@ export function LoginView() {
             <Button className="w-full" onClick={submit} disabled={loading || !email || !password}>
               {loading ? <Loader2 className="animate-spin" size={16} /> : null}
               {authMode === "signin" ? "Sign in" : "Request access"}
+            </Button>
+            <Button className="w-full" variant="secondary" onClick={continueWithGoogle} disabled={loading}>
+              Continue with Google
             </Button>
             <div className="flex flex-wrap justify-between gap-3 text-sm">
               <Link href="/forgot-password" className="font-semibold text-clinic-700">
@@ -2058,6 +2081,10 @@ function FeedbackDialog({
 
   const submit = async () => {
     if (!form.name || !form.message) return;
+    if (form.email && !isValidEmail(form.email)) {
+      setSubmitMessage("Enter a valid email address or leave email blank.");
+      return;
+    }
     setSubmitting(true);
     setSubmitMessage("");
     let entry: FeedbackEntry;
@@ -2071,9 +2098,9 @@ function FeedbackDialog({
         reportId: form.reportId || undefined,
         message: form.message
       });
-    } catch {
+    } catch (err) {
       setSubmitting(false);
-      setSubmitMessage("Could not register this request in Supabase. Please try again.");
+      setSubmitMessage(err instanceof Error ? err.message : "Could not register this request in Supabase. Please try again.");
       return;
     }
     setRegisteredId(entry.id);
