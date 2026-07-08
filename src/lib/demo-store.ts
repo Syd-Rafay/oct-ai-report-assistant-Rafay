@@ -838,6 +838,103 @@ export function useDemoStore() {
       commit(audit({ ...data, scans: [scan, ...data.scans] }, "Scan uploaded", "scan", scan.id, "Demo storage path created"));
       return scan;
     },
+    async replaceScanImage(scanId: string, file: File) {
+      if (currentUser.role !== "doctor" && currentUser.role !== "admin") {
+        throw new Error("Only doctors or admins can change scan images.");
+      }
+      const existing = data.scans.find((scan) => scan.id === scanId);
+      if (!existing) throw new Error("Scan not found.");
+      const linkedAiIds = data.aiResults.filter((result) => result.scanId === scanId).map((result) => result.id);
+
+      if (mode === "supabase" && supabase) {
+        const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        const storagePath = `${existing.patientId}/${crypto.randomUUID()}.${extension}`;
+        const upload = await supabase.storage.from("oct-scans").upload(storagePath, file, {
+          contentType: file.type,
+          upsert: false
+        });
+        if (upload.error) throw new Error(upload.error.message);
+
+        const { data: publicUrl } = supabase.storage.from("oct-scans").getPublicUrl(storagePath);
+        if (linkedAiIds.length) {
+          const { error: reportError } = await supabase.from("reports").delete().in("ai_result_id", linkedAiIds);
+          if (reportError) throw new Error(reportError.message);
+          const { error: aiError } = await supabase.from("ai_results").delete().eq("scan_id", scanId);
+          if (aiError) throw new Error(aiError.message);
+        }
+        const { data: row, error } = await supabase
+          .from("scans")
+          .update({ image_url: publicUrl.publicUrl, storage_path: storagePath })
+          .eq("id", scanId)
+          .select("*")
+          .single();
+        if (error) throw new Error(error.message);
+
+        if (existing.storagePath) {
+          await supabase.storage.from("oct-scans").remove([existing.storagePath]);
+        }
+        const saved = mapScan(row as DbScan);
+        setData((current) => ({
+          ...current,
+          scans: current.scans.map((scan) => (scan.id === scanId ? saved : scan)),
+          aiResults: current.aiResults.filter((result) => result.scanId !== scanId),
+          reports: current.reports.filter((report) => !linkedAiIds.includes(report.aiResultId))
+        }));
+        await insertAudit(actorId, "Scan image changed", "scan", scanId, "Linked analysis and reports removed");
+        return saved;
+      }
+
+      const imageUrl = URL.createObjectURL(file);
+      const saved = {
+        ...existing,
+        imageUrl,
+        storagePath: `oct-scans/${existing.patientId}/${Date.now()}.${file.name.split(".").pop()?.toLowerCase() || "jpg"}`
+      };
+      commit(audit({
+        ...data,
+        scans: data.scans.map((scan) => (scan.id === scanId ? saved : scan)),
+        aiResults: data.aiResults.filter((result) => result.scanId !== scanId),
+        reports: data.reports.filter((report) => !linkedAiIds.includes(report.aiResultId))
+      }, "Scan image changed", "scan", scanId, "Linked analysis and reports removed"));
+      return saved;
+    },
+    async deleteScan(scanId: string) {
+      if (currentUser.role !== "doctor" && currentUser.role !== "admin") {
+        throw new Error("Only doctors or admins can delete scans.");
+      }
+      const existing = data.scans.find((scan) => scan.id === scanId);
+      if (!existing) throw new Error("Scan not found.");
+      const linkedAiIds = data.aiResults.filter((result) => result.scanId === scanId).map((result) => result.id);
+
+      if (mode === "supabase" && supabase) {
+        if (linkedAiIds.length) {
+          const { error: reportError } = await supabase.from("reports").delete().in("ai_result_id", linkedAiIds);
+          if (reportError) throw new Error(reportError.message);
+          const { error: aiError } = await supabase.from("ai_results").delete().eq("scan_id", scanId);
+          if (aiError) throw new Error(aiError.message);
+        }
+        const { error } = await supabase.from("scans").delete().eq("id", scanId);
+        if (error) throw new Error(error.message);
+        if (existing.storagePath) {
+          await supabase.storage.from("oct-scans").remove([existing.storagePath]);
+        }
+        setData((current) => ({
+          ...current,
+          scans: current.scans.filter((scan) => scan.id !== scanId),
+          aiResults: current.aiResults.filter((result) => result.scanId !== scanId),
+          reports: current.reports.filter((report) => !linkedAiIds.includes(report.aiResultId))
+        }));
+        await insertAudit(actorId, "Scan deleted", "scan", scanId, "Scan, linked analysis, and reports removed");
+        return;
+      }
+
+      commit(audit({
+        ...data,
+        scans: data.scans.filter((scan) => scan.id !== scanId),
+        aiResults: data.aiResults.filter((result) => result.scanId !== scanId),
+        reports: data.reports.filter((report) => !linkedAiIds.includes(report.aiResultId))
+      }, "Scan deleted", "scan", scanId, "Scan, linked analysis, and reports removed"));
+    },
     runAnalysis(scan: Scan) {
       const classes: DiseaseClass[] = ["CNV", "DME", "DRUSEN", "NORMAL"];
       const predictedClass = classes[Math.floor(Math.random() * classes.length)];

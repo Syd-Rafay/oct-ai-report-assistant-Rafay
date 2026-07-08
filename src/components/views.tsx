@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -32,7 +32,7 @@ import { prepareScanImages } from "@/lib/image-processing";
 import { downloadPublicReportPdf, downloadReportPdf } from "@/lib/pdf";
 import { changePatientAccessPassword, checkPublicReport, getPatientAccessId, getPatientCurrentAccessPassword, sendFeedbackEmail, sendReportAccessEmail, type PublicReport, type PublicReportResult } from "@/lib/report-access";
 import { getReportTemplates, reportTemplates, saveReportTemplates } from "@/lib/report-templates";
-import type { DiseaseClass, EyeSide, FeedbackEntry, Gender, Patient, Report, Role } from "@/lib/types";
+import type { DiseaseClass, EyeSide, FeedbackEntry, Gender, Patient, Report, Role, Scan } from "@/lib/types";
 
 const diseaseClasses: DiseaseClass[] = ["CNV", "DME", "DRUSEN", "NORMAL"];
 
@@ -80,6 +80,64 @@ async function downloadImage(url: string, filename: string) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(objectUrl);
+}
+
+function ScanImageActions({
+  scan,
+  patientCode,
+  canManage,
+  onChangePhoto,
+  onDeleteScan,
+  busy = false
+}: {
+  scan: Scan;
+  patientCode?: string;
+  canManage: boolean;
+  onChangePhoto?: (file: File) => void | Promise<void>;
+  onDeleteScan?: () => void | Promise<void>;
+  busy?: boolean;
+}) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
+      <a href={scan.imageUrl} target="_blank" rel="noreferrer" className="block">
+        <Button className="w-full sm:w-auto" variant="secondary">
+          <Eye size={16} />
+          View Original
+        </Button>
+      </a>
+      <Button className="w-full sm:w-auto" variant="secondary" onClick={() => void downloadImage(scan.imageUrl, `OCT_${patientCode ?? scan.id}.jpg`)}>
+        <Download size={16} />
+        Download Image
+      </Button>
+      {canManage && onChangePhoto ? (
+        <>
+          <input
+            ref={fileRef}
+            className="hidden"
+            type="file"
+            accept="image/*"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void onChangePhoto(file);
+            }}
+          />
+          <Button className="w-full sm:w-auto" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+            <Upload size={16} />
+            Change Photo
+          </Button>
+        </>
+      ) : null}
+      {canManage && onDeleteScan ? (
+        <Button className="w-full sm:w-auto" variant="danger" disabled={busy} onClick={() => void onDeleteScan()}>
+          <Trash2 size={16} />
+          Delete Scan
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 function doctorDisplayName(name?: string) {
@@ -992,12 +1050,14 @@ export function AnalysisView({ id }: { id: string }) {
   const store = useDemoStore();
   const [analysisError, setAnalysisError] = useState("");
   const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [scanActionLoading, setScanActionLoading] = useState(false);
   const scan = store.data.scans.find((item) => item.id === id);
   if (!scan) return <Missing title="Scan not found" href="/dashboard" label="Back to dashboard" />;
   const patient = store.data.patients.find((item) => item.id === scan.patientId);
   const aiResult = store.data.aiResults.find((item) => item.scanId === scan.id);
   const linkedReport = aiResult ? store.data.reports.find((report) => report.aiResultId === aiResult.id) : undefined;
   const canManageAnalysis = store.currentUser.role === "doctor" || store.currentUser.role === "admin";
+  const canManageScan = canManageAnalysis;
 
   const analyzeScan = async () => {
     setAnalysisError("");
@@ -1039,6 +1099,34 @@ export function AnalysisView({ id }: { id: string }) {
     router.push(`/reports/${report.id}/edit`);
   };
 
+  const changeScanPhoto = async (file: File) => {
+    setAnalysisError("");
+    if (linkedReport && !window.confirm("Changing this scan image will delete the linked analysis and report because they belong to the old image. Continue?")) return;
+    setScanActionLoading(true);
+    try {
+      const prepared = await prepareScanImages(file);
+      await store.replaceScanImage(scan.id, prepared.storageFile);
+      router.refresh();
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : "Could not change scan photo.");
+    } finally {
+      setScanActionLoading(false);
+    }
+  };
+
+  const deleteCurrentScan = async () => {
+    setAnalysisError("");
+    if (!window.confirm("Delete this scan, its analysis, and any linked report? This cannot be undone.")) return;
+    setScanActionLoading(true);
+    try {
+      await store.deleteScan(scan.id);
+      router.push(`/patients/${scan.patientId}`);
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : "Could not delete scan.");
+      setScanActionLoading(false);
+    }
+  };
+
   return (
     <>
       <PageTitle
@@ -1054,15 +1142,14 @@ export function AnalysisView({ id }: { id: string }) {
       <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
         <Card className="p-5">
           <img src={scan.imageUrl} alt="OCT scan" className="aspect-[4/3] w-full rounded-md bg-slate-900 object-cover" />
-          <div className="mt-4 grid gap-2 sm:flex">
-            <a href={scan.imageUrl} target="_blank" rel="noreferrer" className="block">
-              <Button className="w-full sm:w-auto" variant="secondary">View Original</Button>
-            </a>
-            <Button className="w-full sm:w-auto" variant="secondary" onClick={() => void downloadImage(scan.imageUrl, `OCT_${patient?.patientCode ?? scan.id}.jpg`)}>
-              <Download size={16} />
-              Download Image
-            </Button>
-          </div>
+          <ScanImageActions
+            scan={scan}
+            patientCode={patient?.patientCode}
+            canManage={canManageScan}
+            busy={scanActionLoading}
+            onChangePhoto={changeScanPhoto}
+            onDeleteScan={deleteCurrentScan}
+          />
         </Card>
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -1137,6 +1224,7 @@ export function ReportEditorView({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [accessMessage, setAccessMessage] = useState("");
+  const [scanWorking, setScanWorking] = useState(false);
   const [draft, setDraft] = useState<Report | undefined>(report);
 
   useEffect(() => {
@@ -1149,6 +1237,7 @@ export function ReportEditorView({ id }: { id: string }) {
   const scan = store.data.scans.find((item) => item.id === draft.scanId);
   const ai = store.data.aiResults.find((item) => item.id === draft.aiResultId);
   const canApprove = store.currentUser.role === "doctor";
+  const canManageScan = store.currentUser.role === "doctor" || store.currentUser.role === "admin";
   const patientAccessId = patient ? getPatientAccessId(patient) : "";
 
   const save = async (status: Report["status"] = draft.status) => {
@@ -1171,6 +1260,35 @@ export function ReportEditorView({ id }: { id: string }) {
       router.push("/reports/history");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete report.");
+    }
+  };
+
+  const changeScanPhoto = async (file: File) => {
+    if (!scan) return;
+    setError("");
+    if (!window.confirm("Changing this scan image will delete this report and the linked analysis because they belong to the old image. Continue?")) return;
+    setScanWorking(true);
+    try {
+      const prepared = await prepareScanImages(file);
+      await store.replaceScanImage(scan.id, prepared.storageFile);
+      router.push(`/scans/${scan.id}/analysis`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change scan photo.");
+      setScanWorking(false);
+    }
+  };
+
+  const deleteCurrentScan = async () => {
+    if (!scan) return;
+    setError("");
+    if (!window.confirm("Delete this scan, its analysis, and this report? This cannot be undone.")) return;
+    setScanWorking(true);
+    try {
+      await store.deleteScan(scan.id);
+      router.push(`/patients/${scan.patientId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete scan.");
+      setScanWorking(false);
     }
   };
 
@@ -1219,18 +1337,14 @@ export function ReportEditorView({ id }: { id: string }) {
           {scan ? (
             <>
               <img src={scan.imageUrl} alt="OCT scan" className="mt-4 aspect-[4/3] w-full rounded-md object-cover" />
-              <div className="mt-3 grid gap-2 sm:flex">
-                <a href={scan.imageUrl} target="_blank" rel="noreferrer" className="block">
-                  <Button className="w-full sm:w-auto" variant="secondary">
-                    <Eye size={16} />
-                    View Original
-                  </Button>
-                </a>
-                <Button className="w-full sm:w-auto" variant="secondary" onClick={() => void downloadImage(scan.imageUrl, `OCT_${patient?.patientCode ?? scan.id}.jpg`)}>
-                  <Download size={16} />
-                  Download Image
-                </Button>
-              </div>
+              <ScanImageActions
+                scan={scan}
+                patientCode={patient?.patientCode}
+                canManage={canManageScan}
+                busy={scanWorking}
+                onChangePhoto={changeScanPhoto}
+                onDeleteScan={deleteCurrentScan}
+              />
             </>
           ) : null}
         </Card>
@@ -1289,6 +1403,7 @@ export function ReportView({ id }: { id: string }) {
   const ai = store.data.aiResults.find((item) => item.id === report.aiResultId);
   const approver = store.data.profiles.find((item) => item.id === report.approvedBy);
   const canDoctorEdit = store.currentUser.role === "doctor";
+  const canManageScan = store.currentUser.role === "doctor" || store.currentUser.role === "admin";
 
   const updateStatus = async (status: Report["status"]) => {
     setError("");
@@ -1312,6 +1427,35 @@ export function ReportView({ id }: { id: string }) {
       router.push("/reports/history");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete report.");
+      setWorking(false);
+    }
+  };
+
+  const changeScanPhoto = async (file: File) => {
+    if (!scan) return;
+    setError("");
+    if (!window.confirm("Changing this scan image will delete this report and the linked analysis because they belong to the old image. Continue?")) return;
+    setWorking(true);
+    try {
+      const prepared = await prepareScanImages(file);
+      await store.replaceScanImage(scan.id, prepared.storageFile);
+      router.push(`/scans/${scan.id}/analysis`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change scan photo.");
+      setWorking(false);
+    }
+  };
+
+  const deleteCurrentScan = async () => {
+    if (!scan) return;
+    setError("");
+    if (!window.confirm("Delete this scan, its analysis, and linked reports? This cannot be undone.")) return;
+    setWorking(true);
+    try {
+      await store.deleteScan(scan.id);
+      router.push(`/patients/${scan.patientId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete scan.");
       setWorking(false);
     }
   };
@@ -1354,18 +1498,14 @@ export function ReportView({ id }: { id: string }) {
             {scan ? (
               <>
                 <img src={scan.imageUrl} alt="OCT scan" className="aspect-[4/3] w-full rounded-md object-cover" />
-                <div className="mt-3 grid gap-2 sm:flex">
-                  <a href={scan.imageUrl} target="_blank" rel="noreferrer" className="block">
-                    <Button className="w-full sm:w-auto" variant="secondary">
-                      <Eye size={16} />
-                      View Original
-                    </Button>
-                  </a>
-                  <Button className="w-full sm:w-auto" variant="secondary" onClick={() => void downloadImage(scan.imageUrl, `OCT_${patient?.patientCode ?? scan.id}.jpg`)}>
-                    <Download size={16} />
-                    Download Image
-                  </Button>
-                </div>
+                <ScanImageActions
+                  scan={scan}
+                  patientCode={patient?.patientCode}
+                  canManage={canManageScan}
+                  busy={working}
+                  onChangePhoto={changeScanPhoto}
+                  onDeleteScan={deleteCurrentScan}
+                />
               </>
             ) : null}
             <div className="mt-4 space-y-3">
