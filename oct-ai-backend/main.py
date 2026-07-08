@@ -127,6 +127,12 @@ class ReportCheckRequest(BaseModel):
     password: str
 
 
+class ReportPasswordChangeRequest(BaseModel):
+    access_id: str
+    old_password: str
+    new_password: str
+
+
 class ReportAccessEmailRequest(BaseModel):
     to_email: str
     patient_name: str
@@ -222,6 +228,28 @@ def get_patient_access_password(patient_id: str, created_at: str) -> str:
         value = (value * 1664525 + 1013904223) & 0xFFFFFFFF
         password += ACCESS_ALPHABET[value % len(ACCESS_ALPHABET)]
     return password
+
+
+def access_id_digits(value: str | None) -> str:
+    return "".join(char for char in (value or "") if char.isdigit())
+
+
+def find_patient_by_access_id(access_id: str) -> dict[str, Any] | None:
+    access_id = access_id.strip()
+    access_digits = access_id_digits(access_id)
+    patient = first_row("patients", {"patient_code": f"eq.{access_digits or access_id}", "select": "*"})
+    if not patient and access_id != access_digits:
+        patient = first_row("patients", {"patient_code": f"eq.{access_id}", "select": "*"})
+    if not patient and access_digits:
+        patient = first_row("patients", {"cnic": f"eq.{access_digits}", "select": "*"})
+    if not patient and access_digits:
+        formatted_cnic = f"{access_digits[:5]}-{access_digits[5:12]}-{access_digits[12:]}" if len(access_digits) == 13 else access_digits
+        patient = first_row("patients", {"cnic": f"eq.{formatted_cnic}", "select": "*"})
+    return patient
+
+
+def expected_patient_password(patient: dict[str, Any]) -> str:
+    return patient.get("access_password") or get_patient_access_password(patient["id"], patient["created_at"])
 
 
 def supabase_configured() -> bool:
@@ -385,11 +413,11 @@ def check_report_access(input_data: ReportCheckRequest):
         raise HTTPException(status_code=400, detail="Access ID and password are required.")
 
     try:
-        patient = first_row("patients", {"patient_code": f"eq.{access_id}", "select": "*"})
+        patient = find_patient_by_access_id(access_id)
         if not patient:
             return {"configured": True, "found": False, "approved": False, "message": "No matching patient access record found."}
 
-        expected_password = get_patient_access_password(patient["id"], patient["created_at"])
+        expected_password = expected_patient_password(patient)
         if password != expected_password:
             return {"configured": True, "found": False, "approved": False, "message": "Invalid access ID or password."}
 
@@ -428,7 +456,7 @@ def check_report_access(input_data: ReportCheckRequest):
             "status": report["status"],
             "report": {
                 "id": report["id"],
-                "patientCode": patient.get("patient_code", ""),
+                "patientCode": access_id_digits(patient.get("cnic")) or patient.get("patient_code", ""),
                 "patientName": patient.get("full_name", ""),
                 "age": patient.get("age"),
                 "gender": patient.get("gender"),
@@ -442,6 +470,40 @@ def check_report_access(input_data: ReportCheckRequest):
                 "approvedAt": report.get("approved_at"),
             },
         }
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/reports/change-access-password")
+def change_report_access_password(input_data: ReportPasswordChangeRequest):
+    if not supabase_configured():
+        raise HTTPException(status_code=503, detail="Public report lookup is not configured on the backend.")
+
+    access_id = input_data.access_id.strip()
+    old_password = input_data.old_password.strip()
+    new_password = input_data.new_password.strip()
+    if not access_id or not old_password or not new_password:
+        raise HTTPException(status_code=400, detail="Access ID, old password, and new password are required.")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
+
+    try:
+        patient = find_patient_by_access_id(access_id)
+        if not patient:
+            raise HTTPException(status_code=404, detail="No matching patient access record found.")
+
+        if old_password != expected_patient_password(patient):
+            raise HTTPException(status_code=400, detail="Old password is incorrect.")
+
+        supabase_write(
+            "patients",
+            {"access_password": new_password, "updated_at": utc_now()},
+            method="PATCH",
+            params={"id": f"eq.{patient['id']}"},
+        )
+        return {"changed": True, "message": "Patient password updated. Use the new password next time."}
+    except HTTPException:
+        raise
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

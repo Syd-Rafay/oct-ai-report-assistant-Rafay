@@ -31,6 +31,14 @@ export function getPatientAccessPassword(patient: Pick<Patient, "id" | "createdA
   return password;
 }
 
+export function getPatientAccessId(patient: Pick<Patient, "cnic" | "patientCode">) {
+  return patient.cnic ? patient.cnic.replace(/\D/g, "") : patient.patientCode;
+}
+
+export function getPatientCurrentAccessPassword(patient: Pick<Patient, "id" | "createdAt" | "accessPassword">) {
+  return patient.accessPassword || getPatientAccessPassword(patient);
+}
+
 export type PublicReportResult = {
   configured?: boolean;
   found: boolean;
@@ -112,6 +120,35 @@ export async function sendReportAccessEmail(input: {
   }
 
   return response.json() as Promise<{ sent: boolean; configured: boolean; message: string }>;
+}
+
+export async function changePatientAccessPassword(input: {
+  accessId: string;
+  oldPassword: string;
+  newPassword: string;
+}) {
+  const response = await fetch(`${backendBaseUrl()}/reports/change-access-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      access_id: input.accessId,
+      old_password: input.oldPassword,
+      new_password: input.newPassword
+    })
+  });
+
+  if (!response.ok) {
+    let detail = "Could not change patient password.";
+    try {
+      const body = await response.json();
+      detail = body.detail ?? detail;
+    } catch {
+      // Keep default message.
+    }
+    throw new Error(detail);
+  }
+
+  return response.json() as Promise<{ changed: boolean; message: string }>;
 }
 
 export async function sendFeedbackEmail(input: {

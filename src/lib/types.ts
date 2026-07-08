@@ -20,6 +20,8 @@ export type Profile = {
 export type Patient = {
   id: string;
   patientCode: string;
+  cnic?: string;
+  accessPassword?: string;
   fullName: string;
   age: number;
   gender: Gender;

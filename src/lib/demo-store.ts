@@ -69,6 +69,7 @@ export const seedData: AppData = {
     {
       id: patientId,
       patientCode: "MCS-OCT-0001",
+      cnic: "61101-2910291-3",
       fullName: "Ayesha Khan",
       age: 56,
       gender: "Female",
@@ -162,6 +163,8 @@ type DbProfile = {
 type DbPatient = {
   id: string;
   patient_code: string;
+  cnic: string | null;
+  access_password: string | null;
   full_name: string;
   age: number;
   gender: Patient["gender"];
@@ -303,6 +306,8 @@ function mapPatient(row: DbPatient): Patient {
   return {
     id: row.id,
     patientCode: row.patient_code,
+    cnic: row.cnic ?? undefined,
+    accessPassword: row.access_password ?? undefined,
     fullName: row.full_name,
     age: row.age,
     gender: row.gender,
@@ -683,6 +688,7 @@ export function useDemoStore() {
           .from("patients")
           .insert({
             patient_code: input.patientCode,
+            cnic: input.cnic || null,
             full_name: input.fullName,
             age: input.age,
             gender: input.gender,
@@ -723,6 +729,7 @@ export function useDemoStore() {
           .from("patients")
           .update({
             patient_code: input.patientCode,
+            cnic: input.cnic || null,
             full_name: input.fullName,
             age: input.age,
             gender: input.gender,

@@ -15,6 +15,8 @@ create table if not exists profiles (
 create table if not exists patients (
   id uuid primary key default gen_random_uuid(),
   patient_code text unique not null,
+  cnic text unique,
+  access_password text,
   full_name text not null,
   age int not null,
   gender text not null,
