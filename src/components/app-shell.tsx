@@ -26,7 +26,6 @@ const navItems = [
   { href: "/patients/new", label: "New Patient", icon: UserPlus },
   { href: "/patients/search", label: "Search Patient", icon: Search },
   { href: "/scans/upload", label: "Upload Scan", icon: Upload },
-  { href: "/reports/check", label: "Check Report", icon: ClipboardList },
   { href: "/reports/history", label: "Report History", icon: FileClock },
   { href: "/change-password", label: "Change Password", icon: KeyRound }
 ];
@@ -89,8 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const clinicalItems = store.currentUser.role === "admin" ? navItems.filter((item) => item.href !== "/reports/check") : navItems;
-  const items = store.currentUser.role === "admin" ? [...clinicalItems, ...adminItems] : clinicalItems;
+  const items = store.currentUser.role === "admin" ? [...navItems, ...adminItems] : navItems;
 
   return (
     <div className="min-h-screen bg-slate-50">

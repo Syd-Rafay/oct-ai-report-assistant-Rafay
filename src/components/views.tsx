@@ -507,14 +507,12 @@ export function DashboardView() {
                 Upload OCT
               </Button>
             </Link>
-            {store.currentUser.role !== "admin" ? (
-              <Link href="/reports/check" className="block">
-                <Button className="w-full" variant="secondary">
-                  <ClipboardCheck size={16} />
-                  Check Report
-                </Button>
-              </Link>
-            ) : null}
+            <Link href="/reports/history" className="block">
+              <Button className="w-full" variant="secondary">
+                <ClipboardCheck size={16} />
+                Check Reports
+              </Button>
+            </Link>
           </div>
         }
       />
