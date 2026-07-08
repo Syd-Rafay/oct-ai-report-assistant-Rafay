@@ -66,7 +66,7 @@ create table if not exists reports (
   recommendation text,
   doctor_notes text,
   final_diagnosis text,
-  status text not null default 'draft' check (status in ('draft', 'pending_review', 'approved', 'rejected')),
+    status text not null default 'draft' check (status in ('draft', 'pending_review', 'approved', 'rejected', 'superseded')),
   approved_by uuid references profiles(id),
   pdf_url text,
   pdf_storage_path text,

@@ -39,27 +39,32 @@ export function getPatientCurrentAccessPassword(patient: Pick<Patient, "id" | "c
   return patient.accessPassword || getPatientAccessPassword(patient);
 }
 
+export type PublicReport = {
+  id: string;
+  patientCode: string;
+  patientName: string;
+  age?: number;
+  gender?: string;
+  result?: string;
+  findings: string;
+  impression: string;
+  recommendation: string;
+  doctorNotes: string;
+  finalDiagnosis: string;
+  approvedByName?: string;
+  approvedAt?: string;
+  createdAt?: string;
+  status: Report["status"];
+};
+
 export type PublicReportResult = {
   configured?: boolean;
   found: boolean;
   approved: boolean;
   status?: Report["status"];
   message?: string;
-  report?: {
-    id: string;
-    patientCode: string;
-    patientName: string;
-    age?: number;
-    gender?: string;
-    result?: string;
-    findings: string;
-    impression: string;
-    recommendation: string;
-    doctorNotes: string;
-    finalDiagnosis: string;
-    approvedByName?: string;
-    approvedAt?: string;
-  };
+  report?: PublicReport;
+  reports?: PublicReport[];
 };
 
 function backendBaseUrl() {

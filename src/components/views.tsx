@@ -9,6 +9,8 @@ import {
   ClipboardCheck,
   Copy,
   Download,
+  Edit3,
+  Eye,
   FileText,
   Inbox,
   Loader2,
@@ -17,6 +19,7 @@ import {
   RotateCcw,
   Save,
   Search,
+  Trash2,
   Upload,
   Wand2
 } from "lucide-react";
@@ -27,7 +30,7 @@ import { useDemoStore } from "@/lib/demo-store";
 import { addFeedbackResponse, getFeedbackEntries, submitFeedback, updateFeedbackStatus } from "@/lib/feedback";
 import { prepareScanImages } from "@/lib/image-processing";
 import { downloadPublicReportPdf, downloadReportPdf } from "@/lib/pdf";
-import { changePatientAccessPassword, checkPublicReport, getPatientAccessId, getPatientCurrentAccessPassword, sendFeedbackEmail, sendReportAccessEmail, type PublicReportResult } from "@/lib/report-access";
+import { changePatientAccessPassword, checkPublicReport, getPatientAccessId, getPatientCurrentAccessPassword, sendFeedbackEmail, sendReportAccessEmail, type PublicReport, type PublicReportResult } from "@/lib/report-access";
 import { getReportTemplates, reportTemplates, saveReportTemplates } from "@/lib/report-templates";
 import type { DiseaseClass, EyeSide, FeedbackEntry, Gender, Patient, Report, Role } from "@/lib/types";
 
@@ -68,6 +71,17 @@ function cleanAccessIdInput(value: string) {
   return /^\d|[-\d]+$/.test(value) ? cnicDigits(value) : value.trim();
 }
 
+async function downloadImage(url: string, filename: string) {
+  const response = await fetch(url);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(objectUrl);
+}
+
 function doctorDisplayName(name?: string) {
   if (!name) return "Doctor";
   return /^dr\.?\s/i.test(name) ? name : `Dr. ${name}`;
@@ -83,6 +97,27 @@ function patientSafeReportText(value: string) {
 
 function patientResult(result?: string, fallback?: string) {
   return result && result !== "Needs clinical correlation" ? result : fallback && fallback !== "Needs clinical correlation" ? fallback : "-";
+}
+
+function toPublicReport(report: Report, patient: Patient, aiResult?: { predictedClass?: string }, approverName?: string): PublicReport {
+  const result = patientResult(report.finalDiagnosis, aiResult?.predictedClass);
+  return {
+    id: report.id,
+    patientCode: getPatientAccessId(patient),
+    patientName: patient.fullName,
+    age: patient.age,
+    gender: patient.gender,
+    result,
+    findings: patientSafeReportText(report.findings),
+    impression: patientSafeReportText(report.impression),
+    recommendation: patientSafeReportText(report.recommendation),
+    doctorNotes: patientSafeReportText(report.doctorNotes || "No additional notes."),
+    finalDiagnosis: result,
+    approvedByName: doctorDisplayName(approverName),
+    approvedAt: report.approvedAt,
+    createdAt: report.createdAt,
+    status: report.status
+  };
 }
 
 function isValidEmail(value: string) {
@@ -963,6 +998,7 @@ export function AnalysisView({ id }: { id: string }) {
   if (!scan) return <Missing title="Scan not found" href="/dashboard" label="Back to dashboard" />;
   const patient = store.data.patients.find((item) => item.id === scan.patientId);
   const aiResult = store.data.aiResults.find((item) => item.scanId === scan.id);
+  const linkedReport = aiResult ? store.data.reports.find((report) => report.aiResultId === aiResult.id) : undefined;
 
   const analyzeScan = async () => {
     setAnalysisError("");
@@ -1019,6 +1055,15 @@ export function AnalysisView({ id }: { id: string }) {
       <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
         <Card className="p-5">
           <img src={scan.imageUrl} alt="OCT scan" className="aspect-[4/3] w-full rounded-md bg-slate-900 object-cover" />
+          <div className="mt-4 grid gap-2 sm:flex">
+            <a href={scan.imageUrl} target="_blank" rel="noreferrer" className="block">
+              <Button className="w-full sm:w-auto" variant="secondary">View Original</Button>
+            </a>
+            <Button className="w-full sm:w-auto" variant="secondary" onClick={() => void downloadImage(scan.imageUrl, `OCT_${patient?.patientCode ?? scan.id}.jpg`)}>
+              <Download size={16} />
+              Download Image
+            </Button>
+          </div>
         </Card>
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -1045,6 +1090,21 @@ export function AnalysisView({ id }: { id: string }) {
                 <Button className="w-full sm:w-auto" variant="secondary" onClick={analyzeScan} disabled={analysisLoading}>
                   {analysisLoading ? <Loader2 className="animate-spin" size={16} /> : <RotateCcw size={16} />}
                   {analysisLoading ? "Re-analyzing..." : "Re-run Analysis"}
+                </Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  variant="danger"
+                  disabled={Boolean(linkedReport)}
+                  onClick={async () => {
+                    if (!aiResult || !window.confirm("Delete this analysis result?")) return;
+                    try {
+                      await store.deleteAnalysis(aiResult.id);
+                    } catch (err) {
+                      setAnalysisError(err instanceof Error ? err.message : "Could not delete analysis.");
+                    }
+                  }}
+                >
+                  Delete Analysis
                 </Button>
                 <Link href={`/patients/${scan.patientId}`} className="block">
                   <Button className="w-full sm:w-auto" variant="ghost">Back to Patient</Button>
@@ -1099,6 +1159,17 @@ export function ReportEditorView({ id }: { id: string }) {
     }
   };
 
+  const deleteCurrentReport = async () => {
+    setError("");
+    if (!window.confirm("Delete this report permanently?")) return;
+    try {
+      await store.deleteReport(draft.id);
+      router.push("/reports/history");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete report.");
+    }
+  };
+
   const approve = async () => {
     setError("");
     setAccessMessage("");
@@ -1141,7 +1212,23 @@ export function ReportEditorView({ id }: { id: string }) {
               <SafetyNotice />
             </>
           ) : null}
-          {scan ? <img src={scan.imageUrl} alt="OCT scan" className="mt-4 aspect-[4/3] w-full rounded-md object-cover" /> : null}
+          {scan ? (
+            <>
+              <img src={scan.imageUrl} alt="OCT scan" className="mt-4 aspect-[4/3] w-full rounded-md object-cover" />
+              <div className="mt-3 grid gap-2 sm:flex">
+                <a href={scan.imageUrl} target="_blank" rel="noreferrer" className="block">
+                  <Button className="w-full sm:w-auto" variant="secondary">
+                    <Eye size={16} />
+                    View Original
+                  </Button>
+                </a>
+                <Button className="w-full sm:w-auto" variant="secondary" onClick={() => void downloadImage(scan.imageUrl, `OCT_${patient?.patientCode ?? scan.id}.jpg`)}>
+                  <Download size={16} />
+                  Download Image
+                </Button>
+              </div>
+            </>
+          ) : null}
         </Card>
         <Card className="p-5">
           <div className="grid gap-4">
@@ -1165,6 +1252,12 @@ export function ReportEditorView({ id }: { id: string }) {
               Save Draft
             </Button>
             <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("pending_review")}>Needs Review</Button>
+            <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("rejected")}>Reject</Button>
+            <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("superseded")}>Mark Superseded</Button>
+            <Button className="w-full sm:w-auto" variant="danger" onClick={deleteCurrentReport}>
+              <Trash2 size={16} />
+              Delete
+            </Button>
             {canApprove ? (
               <Button className="w-full sm:w-auto" onClick={approve}>
                 <CheckCircle2 size={16} />
@@ -1179,13 +1272,43 @@ export function ReportEditorView({ id }: { id: string }) {
 }
 
 export function ReportView({ id }: { id: string }) {
+  const router = useRouter();
   const store = useDemoStore();
+  const [error, setError] = useState("");
+  const [working, setWorking] = useState(false);
   const report = store.data.reports.find((item) => item.id === id);
   if (!report) return <Missing title="Report not found" href="/reports/history" label="Back to history" />;
   const patient = store.data.patients.find((item) => item.id === report.patientId);
   const scan = store.data.scans.find((item) => item.id === report.scanId);
   const ai = store.data.aiResults.find((item) => item.id === report.aiResultId);
   const approver = store.data.profiles.find((item) => item.id === report.approvedBy);
+  const canDoctorEdit = store.currentUser.role === "doctor";
+
+  const updateStatus = async (status: Report["status"]) => {
+    setError("");
+    setWorking(true);
+    try {
+      await store.saveReport({ ...report, status });
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update report.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const deleteCurrentReport = async () => {
+    setError("");
+    if (!window.confirm("Delete this report permanently?")) return;
+    setWorking(true);
+    try {
+      await store.deleteReport(report.id);
+      router.push("/reports/history");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete report.");
+      setWorking(false);
+    }
+  };
 
   return (
     <>
@@ -1195,15 +1318,22 @@ export function ReportView({ id }: { id: string }) {
         action={
           patient && scan && ai ? (
             <div className="grid gap-2 sm:flex">
-            <Button className="w-full sm:w-auto" onClick={() => downloadReportPdf({ patient, scan, aiResult: ai, report, approver })}>
-              <Download size={16} />
-              Download PDF
+              <Link href={`/reports/${report.id}/edit`} className="block">
+                <Button className="w-full sm:w-auto" variant="secondary">
+                  <Edit3 size={16} />
+                  Edit
+                </Button>
+              </Link>
+              <Button className="w-full sm:w-auto" onClick={() => downloadReportPdf({ patient, scan, aiResult: ai, report, approver })}>
+                <Download size={16} />
+                Download PDF
               </Button>
             </div>
           ) : null
         }
       />
       <Card className="p-6">
+        {error ? <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h3 className="text-xl font-black text-slate-950">Doctor-Approved OCT Report</h3>
@@ -1213,7 +1343,23 @@ export function ReportView({ id }: { id: string }) {
         </div>
         <div className="mt-5 grid gap-5 lg:grid-cols-[320px_1fr]">
           <div>
-            {scan ? <img src={scan.imageUrl} alt="OCT scan" className="aspect-[4/3] w-full rounded-md object-cover" /> : null}
+            {scan ? (
+              <>
+                <img src={scan.imageUrl} alt="OCT scan" className="aspect-[4/3] w-full rounded-md object-cover" />
+                <div className="mt-3 grid gap-2 sm:flex">
+                  <a href={scan.imageUrl} target="_blank" rel="noreferrer" className="block">
+                    <Button className="w-full sm:w-auto" variant="secondary">
+                      <Eye size={16} />
+                      View Original
+                    </Button>
+                  </a>
+                  <Button className="w-full sm:w-auto" variant="secondary" onClick={() => void downloadImage(scan.imageUrl, `OCT_${patient?.patientCode ?? scan.id}.jpg`)}>
+                    <Download size={16} />
+                    Download Image
+                  </Button>
+                </div>
+              </>
+            ) : null}
             <div className="mt-4 space-y-3">
               {patient ? <Info label="Patient access ID" value={getPatientAccessId(patient)} /> : null}
               {patient ? <Info label="Access password" value={getPatientCurrentAccessPassword(patient)} /> : null}
@@ -1230,6 +1376,16 @@ export function ReportView({ id }: { id: string }) {
             <ReportSection title="Recommendation" body={report.recommendation} />
             <ReportSection title="Doctor Notes" body={report.doctorNotes || "No additional notes."} />
             <ReportSection title="Final Diagnosis" body={report.finalDiagnosis} />
+            {canDoctorEdit ? (
+              <div className="grid gap-2 border-t border-slate-100 pt-5 sm:flex sm:flex-wrap sm:justify-end">
+                <Button className="w-full sm:w-auto" variant="secondary" disabled={working} onClick={() => updateStatus("rejected")}>Reject Report</Button>
+                <Button className="w-full sm:w-auto" variant="secondary" disabled={working} onClick={() => updateStatus("superseded")}>Mark Superseded</Button>
+                <Button className="w-full sm:w-auto" variant="danger" disabled={working} onClick={deleteCurrentReport}>
+                  <Trash2 size={16} />
+                  Delete Report
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
       </Card>
@@ -1269,6 +1425,7 @@ export function PatientReportCheckView() {
   const [checkError, setCheckError] = useState("");
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ accessId: "", oldPassword: "", newPassword: "", confirmPassword: "" });
   const [passwordChanging, setPasswordChanging] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState("");
@@ -1287,6 +1444,17 @@ export function PatientReportCheckView() {
   const ai = match ? store.data.aiResults.find((item) => item.id === match.aiResultId) : null;
   const localApprover = match ? store.data.profiles.find((item) => item.id === match.approvedBy) : undefined;
   const publicReport = publicResult?.report;
+  const localReportHistory = patient
+    ? store.data.reports
+        .filter((report) => report.patientId === patient.id && ["approved", "rejected", "superseded"].includes(report.status))
+        .sort((left, right) => new Date(right.approvedAt ?? right.createdAt).getTime() - new Date(left.approvedAt ?? left.createdAt).getTime())
+        .map((report) => {
+          const result = store.data.aiResults.find((item) => item.id === report.aiResultId);
+          const approver = store.data.profiles.find((item) => item.id === report.approvedBy);
+          return toPublicReport(report, patient, result, approver?.fullName);
+        })
+    : [];
+  const publicReportHistory = publicResult?.reports?.length ? publicResult.reports : localReportHistory;
 
   const checkReport = async () => {
     setCheckError("");
@@ -1391,6 +1559,17 @@ export function PatientReportCheckView() {
               </div>
             ) : null}
           </div>
+          <div className="mt-4 rounded-md border border-slate-200 bg-white p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-bold text-slate-950">Past reports</p>
+                <p className="mt-1 text-sm font-semibold text-slate-500">View previous approved, rejected, or superseded reports.</p>
+              </div>
+              <Button variant="secondary" onClick={() => setHistoryOpen((value) => !value)}>
+                {historyOpen ? "Hide reports" : "View all reports"}
+              </Button>
+            </div>
+          </div>
         </Card>
         <Card className="p-5">
           {checkError ? (
@@ -1402,18 +1581,24 @@ export function PatientReportCheckView() {
           ) : !match && publicResult && !publicResult.found ? (
             <EmptyState title="No matching report" body={publicResult.message ?? "Check the report access ID and password, or contact the clinic."} />
           ) : !match && publicResult && !publicResult.approved ? (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-5">
-              <h3 className="mt-4 text-xl font-black text-amber-950">Report not made available yet</h3>
-              <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
-                This report is registered, but it cannot be viewed before doctor approval. Please check again after review is complete.
-              </p>
+            <div>
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-5">
+                <h3 className="text-xl font-black text-amber-950">Report not made available yet</h3>
+                <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
+                  This report is registered, but it cannot be viewed before doctor approval. Please check again after review is complete.
+                </p>
+              </div>
+              {historyOpen ? <PatientReportHistory reports={publicReportHistory} /> : null}
             </div>
           ) : match && match.status !== "approved" ? (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-5">
-              <h3 className="mt-4 text-xl font-black text-amber-950">Report not made available yet</h3>
-              <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
-                This report is registered, but it cannot be viewed before doctor approval. Please check again after the clinic completes review.
-              </p>
+            <div>
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-5">
+                <h3 className="text-xl font-black text-amber-950">Report not made available yet</h3>
+                <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
+                  This report is registered, but it cannot be viewed before doctor approval. Please check again after the clinic completes review.
+                </p>
+              </div>
+              {historyOpen ? <PatientReportHistory reports={publicReportHistory} /> : null}
             </div>
           ) : publicReport ? (
             <div>
@@ -1437,6 +1622,7 @@ export function PatientReportCheckView() {
                 <Download size={16} />
                 Download PDF
               </Button>
+              {historyOpen ? <PatientReportHistory reports={publicReportHistory} /> : null}
             </div>
           ) : match ? (
             <div>
@@ -1464,7 +1650,9 @@ export function PatientReportCheckView() {
                           doctorNotes: patientSafeReportText(match.doctorNotes),
                           finalDiagnosis: patientResult(match.finalDiagnosis, ai?.predictedClass),
                           approvedByName: doctorDisplayName(localApprover?.fullName),
-                          approvedAt: match.approvedAt
+                          approvedAt: match.approvedAt,
+                          createdAt: match.createdAt,
+                          status: match.status
                         })
                       : undefined
                   }
@@ -1486,6 +1674,7 @@ export function PatientReportCheckView() {
                 <ReportSection title="Doctor Notes" body={patientSafeReportText(match.doctorNotes || "No additional notes.")} />
                 <ReportSection title="Final Diagnosis" body={patientResult(match.finalDiagnosis, ai?.predictedClass)} />
               </div>
+              {historyOpen ? <PatientReportHistory reports={publicReportHistory} /> : null}
             </div>
           ) : (
             <EmptyState title="No matching report" body="Check the report access ID and password, or contact the clinic." />
@@ -1494,6 +1683,41 @@ export function PatientReportCheckView() {
       </div>
       {feedbackOpen ? <FeedbackDialog patientCode={accessId} onClose={() => setFeedbackOpen(false)} /> : null}
     </>
+  );
+}
+
+function PatientReportHistory({ reports }: { reports: PublicReport[] }) {
+  return (
+    <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="font-black text-slate-950">All patient reports</h3>
+        <p className="text-sm font-semibold text-slate-500">{reports.length} report{reports.length === 1 ? "" : "s"}</p>
+      </div>
+      <div className="mt-4 space-y-3">
+        {reports.map((report) => (
+          <div key={report.id} className="rounded-md border border-slate-200 bg-white p-4">
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
+              <div>
+                <StatusBadge status={report.status} />
+                <p className="mt-2 font-bold text-slate-950">{patientResult(report.result, report.finalDiagnosis)}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  {report.approvedAt || report.createdAt ? new Date(report.approvedAt ?? report.createdAt ?? "").toLocaleString() : "Date unavailable"}
+                </p>
+              </div>
+              <Button className="w-full sm:w-auto" variant="secondary" onClick={() => downloadPublicReportPdf(report)}>
+                <Download size={16} />
+                Download
+              </Button>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <ReportSection title="Findings" body={patientSafeReportText(report.findings)} />
+              <ReportSection title="Recommendation" body={patientSafeReportText(report.recommendation)} />
+            </div>
+          </div>
+        ))}
+        {!reports.length ? <EmptyState title="No past reports" body="Approved, rejected, and superseded reports will appear here after the clinic reviews them." /> : null}
+      </div>
+    </div>
   );
 }
 

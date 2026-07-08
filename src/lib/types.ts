@@ -4,7 +4,7 @@ export type Gender = "Female" | "Male" | "Other";
 export type EyeSide = "Left" | "Right" | "Both" | "Unknown";
 export type DiseaseClass = "CNV" | "DME" | "DRUSEN" | "NORMAL";
 export type PredictionClass = DiseaseClass | "INVALID_IMAGE" | "INVALID_OR_UNCERTAIN_IMAGE";
-export type ReportStatus = "draft" | "pending_review" | "approved" | "rejected";
+export type ReportStatus = "draft" | "pending_review" | "approved" | "rejected" | "superseded";
 
 export type Profile = {
   id: string;

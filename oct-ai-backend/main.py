@@ -429,6 +429,42 @@ def check_report_access(input_data: ReportCheckRequest):
                 "select": "*",
             },
         )
+        visible_reports = [
+            row
+            for row in reports
+            if row.get("status") in ("approved", "rejected", "superseded")
+        ]
+
+        def public_report_payload(report_row: dict[str, Any]) -> dict[str, Any]:
+            ai_result_row = first_row("ai_results", {"id": f"eq.{report_row['ai_result_id']}", "select": "*"}) if report_row.get("ai_result_id") else None
+            approver_row = (
+                first_row("profiles", {"id": f"eq.{report_row['approved_by']}", "select": "full_name"})
+                if report_row.get("approved_by")
+                else None
+            )
+            final_result = report_row.get("final_diagnosis") or "Needs clinical correlation"
+            if final_result == "Needs clinical correlation" and ai_result_row:
+                final_result = ai_result_row.get("predicted_class") or final_result
+
+            return {
+                "id": report_row["id"],
+                "patientCode": access_id_digits(patient.get("cnic")) or patient.get("patient_code", ""),
+                "patientName": patient.get("full_name", ""),
+                "age": patient.get("age"),
+                "gender": patient.get("gender"),
+                "result": final_result,
+                "findings": patient_safe_report_text(report_row.get("findings") or ""),
+                "impression": patient_safe_report_text(report_row.get("impression") or ""),
+                "recommendation": patient_safe_report_text(report_row.get("recommendation") or ""),
+                "doctorNotes": patient_safe_report_text(report_row.get("doctor_notes") or ""),
+                "finalDiagnosis": final_result,
+                "approvedByName": approver_row.get("full_name") if approver_row else "",
+                "approvedAt": report_row.get("approved_at"),
+                "createdAt": report_row.get("created_at"),
+                "status": report_row.get("status"),
+            }
+
+        report_history = [public_report_payload(row) for row in visible_reports]
         report = next((row for row in reports if row.get("status") == "approved"), None)
         if not report:
             return {
@@ -436,39 +472,19 @@ def check_report_access(input_data: ReportCheckRequest):
                 "found": True,
                 "approved": False,
                 "status": reports[0]["status"] if reports else "draft",
+                "reports": report_history,
                 "message": "Patient access is valid, but no approved report is available yet.",
             }
 
-        ai_result = first_row("ai_results", {"id": f"eq.{report['ai_result_id']}", "select": "*"})
-        approver = (
-            first_row("profiles", {"id": f"eq.{report['approved_by']}", "select": "full_name"})
-            if report.get("approved_by")
-            else None
-        )
-        final_result = report.get("final_diagnosis") or "Needs clinical correlation"
-        if final_result == "Needs clinical correlation" and ai_result:
-            final_result = ai_result.get("predicted_class") or final_result
+        primary_report = public_report_payload(report)
 
         return {
             "configured": True,
             "found": True,
             "approved": True,
             "status": report["status"],
-            "report": {
-                "id": report["id"],
-                "patientCode": access_id_digits(patient.get("cnic")) or patient.get("patient_code", ""),
-                "patientName": patient.get("full_name", ""),
-                "age": patient.get("age"),
-                "gender": patient.get("gender"),
-                "result": final_result,
-                "findings": patient_safe_report_text(report.get("findings") or ""),
-                "impression": patient_safe_report_text(report.get("impression") or ""),
-                "recommendation": patient_safe_report_text(report.get("recommendation") or ""),
-                "doctorNotes": patient_safe_report_text(report.get("doctor_notes") or ""),
-                "finalDiagnosis": final_result,
-                "approvedByName": approver.get("full_name") if approver else "",
-                "approvedAt": report.get("approved_at"),
-            },
+            "report": primary_report,
+            "reports": report_history,
         }
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

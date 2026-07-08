@@ -1019,6 +1019,28 @@ export function useDemoStore() {
       commit(audit({ ...data, reports }, "Report approved", "report", report.id, currentUser.fullName));
       return approved;
     },
+    async deleteReport(reportId: string) {
+      if (mode === "supabase" && supabase) {
+        const { error } = await supabase.from("reports").delete().eq("id", reportId);
+        if (error) throw new Error(error.message);
+        setData((current) => ({ ...current, reports: current.reports.filter((report) => report.id !== reportId) }));
+        await insertAudit(actorId, "Report deleted", "report", reportId, "Report removed by clinical user");
+        return;
+      }
+      commit(audit({ ...data, reports: data.reports.filter((report) => report.id !== reportId) }, "Report deleted", "report", reportId, "Report removed"));
+    },
+    async deleteAnalysis(aiResultId: string) {
+      const linkedReport = data.reports.find((report) => report.aiResultId === aiResultId);
+      if (linkedReport) throw new Error("Delete or update the linked report before deleting this analysis.");
+      if (mode === "supabase" && supabase) {
+        const { error } = await supabase.from("ai_results").delete().eq("id", aiResultId);
+        if (error) throw new Error(error.message);
+        setData((current) => ({ ...current, aiResults: current.aiResults.filter((result) => result.id !== aiResultId) }));
+        await insertAudit(actorId, "Analysis deleted", "ai_result", aiResultId, "AI analysis removed by clinical user");
+        return;
+      }
+      commit(audit({ ...data, aiResults: data.aiResults.filter((result) => result.id !== aiResultId) }, "Analysis deleted", "ai_result", aiResultId, "AI analysis removed"));
+    },
     async updateProfileAccess(profileId: string, input: { role?: Role; isActive?: boolean }) {
       if (currentUser.email.toLowerCase() !== SUPER_ADMIN_EMAIL) {
         throw new Error("Only raahymm@gmail.com can approve clinical access.");
