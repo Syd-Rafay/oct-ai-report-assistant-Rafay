@@ -38,7 +38,7 @@ ALLOWED_ORIGINS = [
 ]
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://oct-ai-report-assistant.vercel.app").rstrip("/")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://cvclinics.online").rstrip("/")
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")

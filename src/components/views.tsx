@@ -999,6 +999,7 @@ export function AnalysisView({ id }: { id: string }) {
   const patient = store.data.patients.find((item) => item.id === scan.patientId);
   const aiResult = store.data.aiResults.find((item) => item.scanId === scan.id);
   const linkedReport = aiResult ? store.data.reports.find((report) => report.aiResultId === aiResult.id) : undefined;
+  const canManageAnalysis = store.currentUser.role === "doctor";
 
   const analyzeScan = async () => {
     setAnalysisError("");
@@ -1094,11 +1095,16 @@ export function AnalysisView({ id }: { id: string }) {
                 <Button
                   className="w-full sm:w-auto"
                   variant="danger"
-                  disabled={Boolean(linkedReport)}
+                  disabled={!canManageAnalysis}
                   onClick={async () => {
-                    if (!aiResult || !window.confirm("Delete this analysis result?")) return;
+                    if (!aiResult) return;
+                    const message = linkedReport
+                      ? "Delete this analysis and its linked report? This cannot be undone."
+                      : "Delete this analysis result? This cannot be undone.";
+                    if (!window.confirm(message)) return;
                     try {
                       await store.deleteAnalysis(aiResult.id);
+                      router.push(`/patients/${scan.patientId}`);
                     } catch (err) {
                       setAnalysisError(err instanceof Error ? err.message : "Could not delete analysis.");
                     }
@@ -1252,17 +1258,19 @@ export function ReportEditorView({ id }: { id: string }) {
               Save Draft
             </Button>
             <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("pending_review")}>Needs Review</Button>
-            <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("rejected")}>Reject</Button>
-            <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("superseded")}>Mark Superseded</Button>
-            <Button className="w-full sm:w-auto" variant="danger" onClick={deleteCurrentReport}>
-              <Trash2 size={16} />
-              Delete
-            </Button>
             {canApprove ? (
-              <Button className="w-full sm:w-auto" onClick={approve}>
-                <CheckCircle2 size={16} />
-                Approve Report
-              </Button>
+              <>
+                <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("rejected")}>Reject</Button>
+                <Button className="w-full sm:w-auto" variant="secondary" onClick={() => save("superseded")}>Mark Superseded</Button>
+                <Button className="w-full sm:w-auto" variant="danger" onClick={deleteCurrentReport}>
+                  <Trash2 size={16} />
+                  Delete
+                </Button>
+                <Button className="w-full sm:w-auto" onClick={approve}>
+                  <CheckCircle2 size={16} />
+                  Approve Report
+                </Button>
+              </>
             ) : null}
           </div>
         </Card>
@@ -1336,7 +1344,9 @@ export function ReportView({ id }: { id: string }) {
         {error ? <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 className="text-xl font-black text-slate-950">Doctor-Approved OCT Report</h3>
+            <h3 className="text-xl font-black text-slate-950">
+              {report.status === "approved" ? "Doctor-Approved OCT Report" : report.status === "rejected" ? "Rejected OCT Report" : report.status === "superseded" ? "Superseded OCT Report" : "OCT Report"}
+            </h3>
             <p className="mt-1 text-sm text-slate-500">Final status depends on doctor approval.</p>
           </div>
           <StatusBadge status={report.status} />

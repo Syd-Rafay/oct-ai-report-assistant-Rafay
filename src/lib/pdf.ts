@@ -5,6 +5,11 @@ import { finalReportDisclaimer, safetyDisclaimer } from "./report-templates";
 import type { AiResult, Patient, Profile, Report, Scan } from "./types";
 import { getPatientAccessId, type PublicReportResult } from "./report-access";
 
+function reportStatusLabel(status: string) {
+  if (status === "pending_review") return "Pending Review";
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 function patientSafeReportText(value: string) {
   return value
     .replace(/AI-assisted classification suggests/gi, "Doctor-reviewed results show")
@@ -99,15 +104,24 @@ export function downloadPublicReportPdf(report: NonNullable<PublicReportResult["
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const margin = 48;
   let y = 52;
+  const statusLabel = reportStatusLabel(report.status);
+  const patientCopyTitle =
+    report.status === "approved"
+      ? "Doctor-Approved OCT Report"
+      : report.status === "rejected"
+        ? "Rejected OCT Report"
+        : report.status === "superseded"
+          ? "Superseded OCT Report"
+          : "OCT Report";
 
   doc.setFillColor(16, 119, 131);
   doc.rect(0, 0, 595, 82, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text("Doctor-Approved OCT Report", margin, y);
+  doc.text(patientCopyTitle, margin, y);
   doc.setFontSize(9);
-  doc.text("Approved patient copy", margin, y + 18);
+  doc.text(`${statusLabel} patient copy`, margin, y + 18);
 
   y = 116;
   doc.setTextColor(23, 32, 51);
@@ -118,8 +132,9 @@ export function downloadPublicReportPdf(report: NonNullable<PublicReportResult["
   doc.text(`Access ID: ${report.patientCode}`, margin, y + 20);
   doc.text(`Name: ${report.patientName}`, margin, y + 38);
   doc.text(`Age/Gender: ${report.age ?? "-"} / ${report.gender ?? "-"}`, margin, y + 56);
-  doc.text(`Approved at: ${report.approvedAt ? new Date(report.approvedAt).toLocaleString() : "-"}`, 320, y + 20);
-  doc.text(`Approved by: ${report.approvedByName ?? "Doctor"}`, 320, y + 38);
+  doc.text(`Status: ${statusLabel}`, 320, y + 20);
+  doc.text(`Review date: ${report.approvedAt || report.createdAt ? new Date(report.approvedAt ?? report.createdAt ?? "").toLocaleString() : "-"}`, 320, y + 38);
+  doc.text(`Reviewed by: ${report.approvedByName ?? "Doctor"}`, 320, y + 56);
 
   y += 92;
   doc.setFont("helvetica", "bold");

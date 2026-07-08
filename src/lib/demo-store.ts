@@ -950,7 +950,18 @@ export function useDemoStore() {
       return report;
     },
     async saveReport(report: Report) {
-      const next = { ...report, updatedAt: now() };
+      const existing = data.reports.find((item) => item.id === report.id);
+      const clinicalStatusChange = report.status === "rejected" || report.status === "superseded";
+      if (clinicalStatusChange && currentUser.role !== "doctor") {
+        throw new Error("Only doctors can reject or supersede reports.");
+      }
+      const shouldClearApproval = report.status !== "approved" && existing?.status === "approved";
+      const next = {
+        ...report,
+        approvedBy: shouldClearApproval ? undefined : report.approvedBy,
+        approvedAt: shouldClearApproval ? undefined : report.approvedAt,
+        updatedAt: now()
+      };
       if (mode === "supabase" && supabase) {
         const { data: row, error } = await supabase
           .from("reports")
@@ -961,6 +972,8 @@ export function useDemoStore() {
             doctor_notes: next.doctorNotes,
             final_diagnosis: next.finalDiagnosis,
             status: next.status,
+            approved_by: next.approvedBy ?? null,
+            approved_at: next.approvedAt ?? null,
             updated_at: next.updatedAt
           })
           .eq("id", next.id)
@@ -1020,6 +1033,9 @@ export function useDemoStore() {
       return approved;
     },
     async deleteReport(reportId: string) {
+      if (currentUser.role !== "doctor") {
+        throw new Error("Only doctors can delete reports.");
+      }
       if (mode === "supabase" && supabase) {
         const { error } = await supabase.from("reports").delete().eq("id", reportId);
         if (error) throw new Error(error.message);
@@ -1030,16 +1046,30 @@ export function useDemoStore() {
       commit(audit({ ...data, reports: data.reports.filter((report) => report.id !== reportId) }, "Report deleted", "report", reportId, "Report removed"));
     },
     async deleteAnalysis(aiResultId: string) {
-      const linkedReport = data.reports.find((report) => report.aiResultId === aiResultId);
-      if (linkedReport) throw new Error("Delete or update the linked report before deleting this analysis.");
+      if (currentUser.role !== "doctor") {
+        throw new Error("Only doctors can delete analyses.");
+      }
+      const linkedReports = data.reports.filter((report) => report.aiResultId === aiResultId);
       if (mode === "supabase" && supabase) {
+        if (linkedReports.length) {
+          const { error: reportError } = await supabase.from("reports").delete().eq("ai_result_id", aiResultId);
+          if (reportError) throw new Error(reportError.message);
+        }
         const { error } = await supabase.from("ai_results").delete().eq("id", aiResultId);
         if (error) throw new Error(error.message);
-        setData((current) => ({ ...current, aiResults: current.aiResults.filter((result) => result.id !== aiResultId) }));
+        setData((current) => ({
+          ...current,
+          reports: current.reports.filter((report) => report.aiResultId !== aiResultId),
+          aiResults: current.aiResults.filter((result) => result.id !== aiResultId)
+        }));
         await insertAudit(actorId, "Analysis deleted", "ai_result", aiResultId, "AI analysis removed by clinical user");
         return;
       }
-      commit(audit({ ...data, aiResults: data.aiResults.filter((result) => result.id !== aiResultId) }, "Analysis deleted", "ai_result", aiResultId, "AI analysis removed"));
+      commit(audit({
+        ...data,
+        reports: data.reports.filter((report) => report.aiResultId !== aiResultId),
+        aiResults: data.aiResults.filter((result) => result.id !== aiResultId)
+      }, "Analysis deleted", "ai_result", aiResultId, "AI analysis removed"));
     },
     async updateProfileAccess(profileId: string, input: { role?: Role; isActive?: boolean }) {
       if (currentUser.email.toLowerCase() !== SUPER_ADMIN_EMAIL) {
