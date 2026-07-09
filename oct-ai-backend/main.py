@@ -31,6 +31,8 @@ INVALID_IMAGE_DISCLAIMER = "This does not appear to be a valid OCT scan. Please 
 LOW_CONFIDENCE_DISCLAIMER = "Uploaded image may not be a valid OCT scan or confidence is too low. Requires doctor review."
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "best_oct_model_b3.pth"))
 MIN_CONFIDENCE = float(os.getenv("MIN_OCT_CONFIDENCE", "0.70"))
+ENABLE_GRADCAM = os.getenv("ENABLE_GRADCAM", "true").lower() != "false"
+MAX_GRADCAM_DIMENSION = int(os.getenv("MAX_GRADCAM_DIMENSION", "600"))
 DEFAULT_ALLOWED_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
 ALLOWED_ORIGINS = [
     origin.strip()
@@ -84,7 +86,7 @@ def build_model() -> torch.nn.Module:
 
 
 def gradcam_overlay_base64(image: Image.Image, image_tensor: torch.Tensor, class_index: int) -> str | None:
-    if model is None:
+    if model is None or not ENABLE_GRADCAM:
         return None
 
     activations: list[torch.Tensor] = []
@@ -119,10 +121,18 @@ def gradcam_overlay_base64(image: Image.Image, image_tensor: torch.Tensor, class
             return None
 
         heatmap = (heatmap / heatmap_max).cpu().numpy()
-        heatmap_image = Image.fromarray(np.uint8(heatmap * 255), mode="L").resize(image.size, Image.Resampling.BICUBIC)
+        overlay_image = image.convert("RGB")
+        longest_side = max(overlay_image.size)
+        if longest_side > MAX_GRADCAM_DIMENSION:
+            ratio = MAX_GRADCAM_DIMENSION / longest_side
+            overlay_image = overlay_image.resize(
+                (max(1, round(overlay_image.width * ratio)), max(1, round(overlay_image.height * ratio))),
+                Image.Resampling.LANCZOS,
+            )
+        heatmap_image = Image.fromarray(np.uint8(heatmap * 255), mode="L").resize(overlay_image.size, Image.Resampling.BICUBIC)
         heatmap_array = np.array(heatmap_image).astype(float) / 255.0
 
-        base = np.array(image.convert("RGB")).astype(float)
+        base = np.array(overlay_image).astype(float)
         color = np.zeros_like(base)
         color[:, :, 0] = 255
         color[:, :, 1] = np.clip(heatmap_array * 220, 0, 220)

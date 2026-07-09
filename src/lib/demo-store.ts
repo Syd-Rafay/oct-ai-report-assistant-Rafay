@@ -275,6 +275,25 @@ function normalizeProbabilities(prediction: DiseaseClass) {
   return probabilities;
 }
 
+function dataUrlToBlob(dataUrl: string) {
+  const [metadata, base64Data] = dataUrl.split(",");
+  const mime = metadata.match(/^data:(.*?);base64$/)?.[1] ?? "image/png";
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+function octScansPublicPath(url?: string) {
+  if (!url) return undefined;
+  const marker = "/storage/v1/object/public/oct-scans/";
+  const index = url.indexOf(marker);
+  if (index === -1) return undefined;
+  return decodeURIComponent(url.slice(index + marker.length));
+}
+
 function userProfile(user: User): Profile {
   const email = user.email ?? "";
   const isSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL;
@@ -847,6 +866,10 @@ export function useDemoStore() {
       const existing = data.scans.find((scan) => scan.id === scanId);
       if (!existing) throw new Error("Scan not found.");
       const linkedAiIds = data.aiResults.filter((result) => result.scanId === scanId).map((result) => result.id);
+      const linkedHeatmapPaths = data.aiResults
+        .filter((result) => result.scanId === scanId)
+        .map((result) => octScansPublicPath(result.heatmapUrl))
+        .filter(Boolean) as string[];
 
       if (mode === "supabase" && supabase) {
         const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -875,6 +898,9 @@ export function useDemoStore() {
 
         if (existing.storagePath) {
           await supabase.storage.from("oct-scans").remove([existing.storagePath]);
+        }
+        if (linkedHeatmapPaths.length) {
+          await supabase.storage.from("oct-scans").remove(linkedHeatmapPaths);
         }
         const saved = mapScan(row as DbScan);
         setData((current) => ({
@@ -908,6 +934,10 @@ export function useDemoStore() {
       const existing = data.scans.find((scan) => scan.id === scanId);
       if (!existing) throw new Error("Scan not found.");
       const linkedAiIds = data.aiResults.filter((result) => result.scanId === scanId).map((result) => result.id);
+      const linkedHeatmapPaths = data.aiResults
+        .filter((result) => result.scanId === scanId)
+        .map((result) => octScansPublicPath(result.heatmapUrl))
+        .filter(Boolean) as string[];
 
       if (mode === "supabase" && supabase) {
         if (linkedAiIds.length) {
@@ -921,6 +951,9 @@ export function useDemoStore() {
         if (!deletedRows?.length) throw new Error("Scan was not deleted. Supabase may be missing scan delete permissions.");
         if (existing.storagePath) {
           await supabase.storage.from("oct-scans").remove([existing.storagePath]);
+        }
+        if (linkedHeatmapPaths.length) {
+          await supabase.storage.from("oct-scans").remove(linkedHeatmapPaths);
         }
         setData((current) => ({
           ...current,
@@ -972,11 +1005,29 @@ export function useDemoStore() {
 
       if (mode === "supabase" && supabase) {
         const existingAiIds = data.aiResults.filter((result) => result.scanId === scan.id).map((result) => result.id);
+        const oldHeatmapPaths = data.aiResults
+          .filter((result) => result.scanId === scan.id)
+          .map((result) => octScansPublicPath(result.heatmapUrl))
+          .filter(Boolean) as string[];
         if (existingAiIds.length) {
           const { error: reportError } = await supabase.from("reports").delete().in("ai_result_id", existingAiIds);
           if (reportError) throw new Error(reportError.message);
           const { error: aiDeleteError } = await supabase.from("ai_results").delete().eq("scan_id", scan.id);
           if (aiDeleteError) throw new Error(aiDeleteError.message);
+        }
+        if (oldHeatmapPaths.length) {
+          await supabase.storage.from("oct-scans").remove(oldHeatmapPaths);
+        }
+        let heatmapUrl: string | null = null;
+        if (prediction.gradcam_overlay_base64) {
+          const heatmapPath = `${scan.patientId}/heatmaps/${scan.id}-${crypto.randomUUID()}.png`;
+          const upload = await supabase.storage.from("oct-scans").upload(heatmapPath, dataUrlToBlob(prediction.gradcam_overlay_base64), {
+            contentType: "image/png",
+            upsert: false
+          });
+          if (!upload.error) {
+            heatmapUrl = supabase.storage.from("oct-scans").getPublicUrl(heatmapPath).data.publicUrl;
+          }
         }
         const { data: row, error } = await supabase
           .from("ai_results")
@@ -987,7 +1038,7 @@ export function useDemoStore() {
             probabilities,
             model_name: prediction.model_name,
             model_version: prediction.model_version,
-            heatmap_url: prediction.gradcam_overlay_base64 ?? null,
+            heatmap_url: heatmapUrl,
             is_dummy_result: false
           })
           .select("*")
@@ -1175,6 +1226,7 @@ export function useDemoStore() {
         throw new Error("Only doctors or admins can delete analyses.");
       }
       const linkedReports = data.reports.filter((report) => report.aiResultId === aiResultId);
+      const heatmapPath = octScansPublicPath(data.aiResults.find((result) => result.id === aiResultId)?.heatmapUrl);
       if (mode === "supabase" && supabase) {
         if (linkedReports.length) {
           const { error: reportError } = await supabase.from("reports").delete().eq("ai_result_id", aiResultId);
@@ -1182,6 +1234,9 @@ export function useDemoStore() {
         }
         const { error } = await supabase.from("ai_results").delete().eq("id", aiResultId);
         if (error) throw new Error(error.message);
+        if (heatmapPath) {
+          await supabase.storage.from("oct-scans").remove([heatmapPath]);
+        }
         setData((current) => ({
           ...current,
           reports: current.reports.filter((report) => report.aiResultId !== aiResultId),
