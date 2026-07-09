@@ -56,6 +56,7 @@ export type AiResult = {
   probabilities: Record<DiseaseClass, number>;
   modelName: string;
   modelVersion: string;
+  heatmapUrl?: string;
   isDummyResult: boolean;
   createdAt: string;
 };
@@ -67,6 +68,8 @@ export type BackendPrediction = {
   model_name: string;
   model_version: string;
   is_valid_oct?: boolean;
+  gradcam_overlay_base64?: string | null;
+  gradcam_disclaimer?: string;
   disclaimer: string;
   request_time_ms?: number;
   inference_time_ms?: number;

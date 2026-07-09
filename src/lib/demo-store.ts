@@ -199,6 +199,7 @@ type DbAiResult = {
   probabilities: Record<DiseaseClass, number>;
   model_name: string | null;
   model_version: string | null;
+  heatmap_url: string | null;
   is_dummy_result: boolean | null;
   created_at: string;
 };
@@ -346,6 +347,7 @@ function mapAiResult(row: DbAiResult): AiResult {
     probabilities: row.probabilities,
     modelName: row.model_name ?? "EfficientNet-B3",
     modelVersion: row.model_version ?? "v1.0",
+    heatmapUrl: row.heatmap_url ?? undefined,
     isDummyResult: row.is_dummy_result ?? false,
     createdAt: row.created_at
   };
@@ -949,6 +951,7 @@ export function useDemoStore() {
         probabilities,
         modelName: "EfficientNet-B0",
         modelVersion: "demo-v1.0",
+        heatmapUrl: undefined,
         isDummyResult: true,
         createdAt: now()
       };
@@ -984,6 +987,7 @@ export function useDemoStore() {
             probabilities,
             model_name: prediction.model_name,
             model_version: prediction.model_version,
+            heatmap_url: prediction.gradcam_overlay_base64 ?? null,
             is_dummy_result: false
           })
           .select("*")
@@ -1008,6 +1012,7 @@ export function useDemoStore() {
         probabilities,
         modelName: prediction.model_name,
         modelVersion: prediction.model_version,
+        heatmapUrl: prediction.gradcam_overlay_base64 ?? undefined,
         isDummyResult: false,
         createdAt: now()
       };

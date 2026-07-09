@@ -1170,6 +1170,15 @@ export function AnalysisView({ id }: { id: string }) {
                   <Probability key={item} label={item} value={aiResult.probabilities[item]} active={item === aiResult.predictedClass} />
                 ))}
               </div>
+              {aiResult.heatmapUrl ? (
+                <div className="rounded-md border border-slate-200 bg-white p-3">
+                  <p className="text-sm font-black text-slate-950">AI attention heatmap</p>
+                  <img src={aiResult.heatmapUrl} alt="Grad-CAM heatmap overlay" className="mt-3 aspect-[4/3] w-full rounded-md bg-slate-900 object-cover" />
+                  <p className="mt-2 text-xs font-medium leading-relaxed text-slate-500">
+                    Highlighted regions influenced the AI classification. This is not a segmentation map or measurement.
+                  </p>
+                </div>
+              ) : null}
               <Info label="Model" value={`${aiResult.modelName} ${aiResult.modelVersion}`} />
               <Info label="Timestamp" value={new Date(aiResult.createdAt).toLocaleString()} />
               <div className="grid gap-2 sm:flex">

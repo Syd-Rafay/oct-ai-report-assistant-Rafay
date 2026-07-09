@@ -1,4 +1,5 @@
 import os
+import base64
 import json
 import smtplib
 import ssl
@@ -80,6 +81,64 @@ def build_model() -> torch.nn.Module:
     in_features = model.classifier[1].in_features
     model.classifier[1] = torch.nn.Linear(in_features, len(CLASSES))
     return model
+
+
+def gradcam_overlay_base64(image: Image.Image, image_tensor: torch.Tensor, class_index: int) -> str | None:
+    if model is None:
+        return None
+
+    activations: list[torch.Tensor] = []
+    gradients: list[torch.Tensor] = []
+    target_layer = model.features[-1]
+
+    def forward_hook(_module: torch.nn.Module, _inputs: tuple[torch.Tensor, ...], output: torch.Tensor) -> None:
+        activations.append(output.detach())
+
+    def backward_hook(_module: torch.nn.Module, _grad_input: tuple[torch.Tensor, ...], grad_output: tuple[torch.Tensor, ...]) -> None:
+        gradients.append(grad_output[0].detach())
+
+    forward_handle = target_layer.register_forward_hook(forward_hook)
+    backward_handle = target_layer.register_full_backward_hook(backward_hook)
+
+    try:
+        model.zero_grad(set_to_none=True)
+        with torch.enable_grad():
+            logits = model(image_tensor)
+            score = logits[:, class_index].sum()
+            score.backward()
+
+        if not activations or not gradients:
+            return None
+
+        feature_maps = activations[-1][0]
+        gradient_maps = gradients[-1][0]
+        weights = gradient_maps.mean(dim=(1, 2), keepdim=True)
+        heatmap = torch.relu((weights * feature_maps).sum(dim=0))
+        heatmap_max = torch.max(heatmap)
+        if float(heatmap_max) <= 0:
+            return None
+
+        heatmap = (heatmap / heatmap_max).cpu().numpy()
+        heatmap_image = Image.fromarray(np.uint8(heatmap * 255), mode="L").resize(image.size, Image.Resampling.BICUBIC)
+        heatmap_array = np.array(heatmap_image).astype(float) / 255.0
+
+        base = np.array(image.convert("RGB")).astype(float)
+        color = np.zeros_like(base)
+        color[:, :, 0] = 255
+        color[:, :, 1] = np.clip(heatmap_array * 220, 0, 220)
+        alpha = (0.15 + 0.45 * heatmap_array)[..., None]
+        overlay = np.uint8(np.clip(base * (1 - alpha) + color * alpha, 0, 255))
+
+        output = BytesIO()
+        Image.fromarray(overlay).save(output, format="PNG")
+        encoded = base64.b64encode(output.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+    except Exception:
+        return None
+    finally:
+        forward_handle.remove()
+        backward_handle.remove()
+        model.zero_grad(set_to_none=True)
 
 
 def clean_state_dict(checkpoint: Any) -> dict[str, torch.Tensor]:
@@ -799,6 +858,7 @@ async def predict(file: UploadFile = File(...)):
                 "model_name": MODEL_NAME,
                 "model_version": MODEL_VERSION,
                 "is_valid_oct": False,
+                "gradcam_overlay_base64": None,
                 "disclaimer": INVALID_IMAGE_DISCLAIMER,
             }
 
@@ -824,8 +884,11 @@ async def predict(file: UploadFile = File(...)):
                 "model_version": MODEL_VERSION,
                 "inference_time_ms": inference_time_ms,
                 "is_valid_oct": False,
+                "gradcam_overlay_base64": None,
                 "disclaimer": LOW_CONFIDENCE_DISCLAIMER,
             }
+
+        gradcam = gradcam_overlay_base64(image, image_tensor, CLASSES.index(prediction))
 
         return {
             "prediction": prediction,
@@ -835,6 +898,8 @@ async def predict(file: UploadFile = File(...)):
             "model_version": MODEL_VERSION,
             "inference_time_ms": inference_time_ms,
             "is_valid_oct": True,
+            "gradcam_overlay_base64": gradcam,
+            "gradcam_disclaimer": "Highlighted regions indicate areas that influenced the AI classification. This is not a segmentation map or measurement.",
             "disclaimer": DISCLAIMER,
         }
     except Exception as exc:
