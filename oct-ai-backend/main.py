@@ -898,8 +898,6 @@ async def predict(file: UploadFile = File(...)):
                 "disclaimer": LOW_CONFIDENCE_DISCLAIMER,
             }
 
-        gradcam = gradcam_overlay_base64(image, image_tensor, CLASSES.index(prediction))
-
         return {
             "prediction": prediction,
             "confidence": confidence,
@@ -908,8 +906,7 @@ async def predict(file: UploadFile = File(...)):
             "model_version": MODEL_VERSION,
             "inference_time_ms": inference_time_ms,
             "is_valid_oct": True,
-            "gradcam_overlay_base64": gradcam,
-            "gradcam_disclaimer": "Highlighted regions indicate areas that influenced the AI classification. This is not a segmentation map or measurement.",
+            "gradcam_overlay_base64": None,
             "disclaimer": DISCLAIMER,
         }
     except Exception as exc:
