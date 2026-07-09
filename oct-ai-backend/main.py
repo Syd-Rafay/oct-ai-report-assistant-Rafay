@@ -31,7 +31,7 @@ INVALID_IMAGE_DISCLAIMER = "This does not appear to be a valid OCT scan. Please 
 LOW_CONFIDENCE_DISCLAIMER = "Uploaded image may not be a valid OCT scan or confidence is too low. Requires doctor review."
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "best_oct_model_b3.pth"))
 MIN_CONFIDENCE = float(os.getenv("MIN_OCT_CONFIDENCE", "0.70"))
-ENABLE_GRADCAM = os.getenv("ENABLE_GRADCAM", "true").lower() != "false"
+ENABLE_GRADCAM = os.getenv("ENABLE_GRADCAM", "false").lower() == "true"
 MAX_GRADCAM_DIMENSION = int(os.getenv("MAX_GRADCAM_DIMENSION", "600"))
 DEFAULT_ALLOWED_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
 ALLOWED_ORIGINS = [
