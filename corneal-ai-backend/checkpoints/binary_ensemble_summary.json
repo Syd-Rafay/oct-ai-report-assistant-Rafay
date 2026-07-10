@@ -1,0 +1,17 @@
+{
+  "models": [
+    "resnet50",
+    "densenet121",
+    "efficientnetv2"
+  ],
+  "class_names": [
+    "non_keratoconus",
+    "keratoconus"
+  ],
+  "test_accuracy": 0.9305,
+  "test_auc": 0.9764,
+  "sensitivity": 0.943,
+  "specificity": 0.9236,
+  "f1": 0.9058,
+  "method": "binary_average_softmax"
+}

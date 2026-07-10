@@ -1,10 +1,8 @@
 import type { BackendPrediction } from "./types";
 
-export async function predictOCT(file: File): Promise<BackendPrediction> {
-  const backendUrl = process.env.NEXT_PUBLIC_AI_BACKEND_URL;
-
+async function postImagePrediction(file: File, backendUrl: string | undefined, missingMessage: string): Promise<BackendPrediction> {
   if (!backendUrl) {
-    throw new Error("NEXT_PUBLIC_AI_BACKEND_URL is missing. Add it to .env.local.");
+    throw new Error(missingMessage);
   }
 
   const formData = new FormData();
@@ -39,4 +37,20 @@ export async function predictOCT(file: File): Promise<BackendPrediction> {
     ...prediction,
     request_time_ms: Math.round(performance.now() - startedAt),
   };
+}
+
+export async function predictOCT(file: File): Promise<BackendPrediction> {
+  return postImagePrediction(
+    file,
+    process.env.NEXT_PUBLIC_AI_BACKEND_URL,
+    "NEXT_PUBLIC_AI_BACKEND_URL is missing. Add it to .env.local."
+  );
+}
+
+export async function predictCorneal(file: File): Promise<BackendPrediction> {
+  return postImagePrediction(
+    file,
+    process.env.NEXT_PUBLIC_CORNEAL_BACKEND_URL,
+    "NEXT_PUBLIC_CORNEAL_BACKEND_URL is missing. Add the Corneal Render service URL."
+  );
 }

@@ -157,6 +157,8 @@ type DbProfile = {
   doctor_id: string | null;
   specialization: string | null;
   clinic_name: string | null;
+  clinic_id: string | null;
+  default_department_id: string | null;
   is_active: boolean | null;
 };
 
@@ -174,6 +176,9 @@ type DbPatient = {
   diabetes_history: Patient["diabetesHistory"] | null;
   previous_eye_disease: string | null;
   clinical_notes: string | null;
+  clinic_id: string | null;
+  department_id: string | null;
+  global_patient_key: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -184,7 +189,10 @@ type DbScan = {
   patient_id: string;
   image_url: string;
   storage_path: string;
-  scan_type: "OCT" | null;
+  scan_type: Scan["scanType"] | null;
+  clinic_id: string | null;
+  department_id: string | null;
+  module_id: Scan["moduleId"] | null;
   eye_side: EyeSide;
   scan_notes: string | null;
   uploaded_by: string | null;
@@ -200,6 +208,7 @@ type DbAiResult = {
   model_name: string | null;
   model_version: string | null;
   heatmap_url: string | null;
+  module_id: AiResult["moduleId"] | null;
   is_dummy_result: boolean | null;
   created_at: string;
 };
@@ -214,6 +223,9 @@ type DbReport = {
   recommendation: string | null;
   doctor_notes: string | null;
   final_diagnosis: Report["finalDiagnosis"] | null;
+  clinic_id: string | null;
+  department_id: string | null;
+  module_id: Report["moduleId"] | null;
   status: Report["status"];
   approved_by: string | null;
   pdf_url: string | null;
@@ -318,6 +330,8 @@ function mapProfile(row: DbProfile): Profile {
     doctorId: row.doctor_id ?? undefined,
     specialization: row.specialization ?? undefined,
     clinicName: row.clinic_name ?? undefined,
+    clinicId: row.clinic_id ?? undefined,
+    defaultDepartmentId: row.default_department_id ?? undefined,
     isActive: row.is_active ?? true
   };
 }
@@ -337,6 +351,9 @@ function mapPatient(row: DbPatient): Patient {
     diabetesHistory: row.diabetes_history ?? "Unknown",
     previousEyeDisease: row.previous_eye_disease ?? undefined,
     clinicalNotes: row.clinical_notes ?? undefined,
+    clinicId: row.clinic_id ?? undefined,
+    departmentId: row.department_id ?? undefined,
+    globalPatientKey: row.global_patient_key ?? undefined,
     createdBy: row.created_by ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -350,6 +367,9 @@ function mapScan(row: DbScan): Scan {
     imageUrl: row.image_url,
     storagePath: row.storage_path,
     scanType: row.scan_type ?? "OCT",
+    clinicId: row.clinic_id ?? undefined,
+    departmentId: row.department_id ?? undefined,
+    moduleId: row.module_id ?? "oct",
     eyeSide: row.eye_side,
     scanNotes: row.scan_notes ?? undefined,
     uploadedBy: row.uploaded_by ?? "",
@@ -367,6 +387,7 @@ function mapAiResult(row: DbAiResult): AiResult {
     modelName: row.model_name ?? "EfficientNet-B3",
     modelVersion: row.model_version ?? "v1.0",
     heatmapUrl: row.heatmap_url ?? undefined,
+    moduleId: row.module_id ?? "oct",
     isDummyResult: row.is_dummy_result ?? false,
     createdAt: row.created_at
   };
@@ -383,6 +404,9 @@ function mapReport(row: DbReport): Report {
     recommendation: row.recommendation ?? "",
     doctorNotes: row.doctor_notes ?? "",
     finalDiagnosis: row.final_diagnosis ?? "Needs clinical correlation",
+    clinicId: row.clinic_id ?? undefined,
+    departmentId: row.department_id ?? undefined,
+    moduleId: row.module_id ?? "oct",
     status: row.status,
     approvedBy: row.approved_by ?? undefined,
     pdfUrl: row.pdf_url ?? undefined,
@@ -719,6 +743,9 @@ export function useDemoStore() {
             diabetes_history: input.diabetesHistory,
             previous_eye_disease: input.previousEyeDisease || null,
             clinical_notes: input.clinicalNotes || null,
+            clinic_id: currentUser.clinicId ?? null,
+            department_id: input.departmentId ?? currentUser.defaultDepartmentId ?? null,
+            global_patient_key: input.globalPatientKey ?? input.cnic?.replace(/\D/g, "") ?? input.patientCode,
             created_by: actorId
           })
           .select("*")
@@ -760,6 +787,9 @@ export function useDemoStore() {
             diabetes_history: input.diabetesHistory,
             previous_eye_disease: input.previousEyeDisease || null,
             clinical_notes: input.clinicalNotes || null,
+            clinic_id: input.clinicId ?? currentUser.clinicId ?? null,
+            department_id: input.departmentId ?? currentUser.defaultDepartmentId ?? null,
+            global_patient_key: input.globalPatientKey ?? input.cnic?.replace(/\D/g, "") ?? input.patientCode,
             updated_at: now()
           })
           .eq("id", patientId)
@@ -814,6 +844,7 @@ export function useDemoStore() {
       }, "Patient deleted", "patient", patientId, "Patient and linked records removed"));
     },
     async addScan(input: { patientId: string; imageUrl: string; eyeSide: EyeSide; scanNotes?: string; file?: File }) {
+      const patient = data.patients.find((item) => item.id === input.patientId);
       if (mode === "supabase" && supabase && input.file) {
         const extension = input.file.name.split(".").pop()?.toLowerCase() || "jpg";
         const storagePath = `${input.patientId}/${crypto.randomUUID()}.${extension}`;
@@ -831,6 +862,9 @@ export function useDemoStore() {
             image_url: publicUrl.publicUrl,
             storage_path: storagePath,
             scan_type: "OCT",
+            clinic_id: patient?.clinicId ?? currentUser.clinicId ?? null,
+            department_id: patient?.departmentId ?? currentUser.defaultDepartmentId ?? null,
+            module_id: "oct",
             eye_side: input.eyeSide,
             scan_notes: input.scanNotes || null,
             uploaded_by: actorId
@@ -851,6 +885,9 @@ export function useDemoStore() {
         imageUrl: input.imageUrl,
         storagePath: `oct-scans/${input.patientId}/${Date.now()}.jpg`,
         scanType: "OCT",
+        clinicId: patient?.clinicId ?? currentUser.clinicId,
+        departmentId: patient?.departmentId ?? currentUser.defaultDepartmentId,
+        moduleId: "oct",
         eyeSide: input.eyeSide,
         scanNotes: input.scanNotes,
         uploadedBy: currentUser.id,
@@ -1039,6 +1076,7 @@ export function useDemoStore() {
             model_name: prediction.model_name,
             model_version: prediction.model_version,
             heatmap_url: heatmapUrl,
+            module_id: scan.moduleId ?? "oct",
             is_dummy_result: false
           })
           .select("*")
@@ -1064,6 +1102,7 @@ export function useDemoStore() {
         modelName: prediction.model_name,
         modelVersion: prediction.model_version,
         heatmapUrl: prediction.gradcam_overlay_base64 ?? undefined,
+        moduleId: scan.moduleId ?? "oct",
         isDummyResult: false,
         createdAt: now()
       };
@@ -1089,6 +1128,9 @@ export function useDemoStore() {
             patient_id: scan.patientId,
             scan_id: scan.id,
             ai_result_id: aiResult.id,
+            clinic_id: scan.clinicId ?? patient?.clinicId ?? currentUser.clinicId ?? null,
+            department_id: scan.departmentId ?? patient?.departmentId ?? currentUser.defaultDepartmentId ?? null,
+            module_id: scan.moduleId ?? aiResult.moduleId ?? "oct",
             findings: template.findings,
             impression: template.impression,
             recommendation: template.recommendation,
@@ -1112,6 +1154,9 @@ export function useDemoStore() {
         patientId: scan.patientId,
         scanId: scan.id,
         aiResultId: aiResult.id,
+        clinicId: scan.clinicId ?? patient?.clinicId ?? currentUser.clinicId,
+        departmentId: scan.departmentId ?? patient?.departmentId ?? currentUser.defaultDepartmentId,
+        moduleId: scan.moduleId ?? aiResult.moduleId ?? "oct",
         ...(await getReportTemplates())[aiResult.predictedClass],
         doctorNotes: patient?.clinicalNotes ?? "",
         finalDiagnosis: "Needs clinical correlation",

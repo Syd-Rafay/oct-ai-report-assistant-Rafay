@@ -2,6 +2,7 @@ export type Role = "admin" | "doctor" | "assistant";
 export type RequestedRole = Role;
 export type Gender = "Female" | "Male" | "Other";
 export type EyeSide = "Left" | "Right" | "Both" | "Unknown";
+export type ModuleId = "oct" | "vkg" | "corneal" | "retina";
 export type DiseaseClass = "CNV" | "DME" | "DRUSEN" | "NORMAL";
 export type PredictionClass = DiseaseClass | "INVALID_IMAGE" | "INVALID_OR_UNCERTAIN_IMAGE";
 export type ReportStatus = "draft" | "pending_review" | "approved" | "rejected" | "superseded";
@@ -14,6 +15,8 @@ export type Profile = {
   doctorId?: string;
   specialization?: string;
   clinicName?: string;
+  clinicId?: string;
+  defaultDepartmentId?: string;
   isActive: boolean;
 };
 
@@ -31,6 +34,9 @@ export type Patient = {
   diabetesHistory: "Yes" | "No" | "Unknown";
   previousEyeDisease?: string;
   clinicalNotes?: string;
+  clinicId?: string;
+  departmentId?: string;
+  globalPatientKey?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -41,7 +47,10 @@ export type Scan = {
   patientId: string;
   imageUrl: string;
   storagePath: string;
-  scanType: "OCT";
+  scanType: "OCT" | "VKG" | "CORNEAL" | "RETINA";
+  clinicId?: string;
+  departmentId?: string;
+  moduleId?: ModuleId;
   eyeSide: EyeSide;
   scanNotes?: string;
   uploadedBy: string;
@@ -57,6 +66,7 @@ export type AiResult = {
   modelName: string;
   modelVersion: string;
   heatmapUrl?: string;
+  moduleId?: ModuleId;
   isDummyResult: boolean;
   createdAt: string;
 };
@@ -89,6 +99,9 @@ export type Report = {
   recommendation: string;
   doctorNotes: string;
   finalDiagnosis: DiseaseClass | "Needs clinical correlation";
+  clinicId?: string;
+  departmentId?: string;
+  moduleId?: ModuleId;
   status: ReportStatus;
   approvedBy?: string;
   pdfUrl?: string;

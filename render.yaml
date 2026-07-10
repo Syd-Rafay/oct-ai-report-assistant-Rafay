@@ -8,3 +8,14 @@ services:
     envVars:
       - key: ALLOWED_ORIGINS
         sync: false
+  - type: web
+    name: afio-corneal-ai-backend
+    runtime: python
+    rootDir: corneal-ai-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: TORCH_NUM_THREADS
+        value: "2"
