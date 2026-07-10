@@ -1,0 +1,8 @@
+{
+  "group": "group-3",
+  "name": "retinalscan",
+  "frontendRoutes": ["/modules/retina"],
+  "backendServices": [],
+  "storagePrefix": "{hospital_id}/retina",
+  "notes": "Group 3 is reserved for later Retina API/model integration. No active implementation required yet."
+}

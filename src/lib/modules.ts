@@ -22,7 +22,7 @@ export const clinicalModules: ClinicalModule[] = [
     shortName: "OCT",
     status: "live",
     description: "Macular OCT upload, AI-assisted classification, doctor review, and report generation.",
-    route: "/scans/upload",
+    route: "/modules/oct",
     accent: "bg-cyan-50 text-cyan-800 ring-cyan-200",
     icon: ScanEye
   },
@@ -33,7 +33,7 @@ export const clinicalModules: ClinicalModule[] = [
     shortName: "VKG",
     status: "training",
     description: "Corneal topography/VKG keratoconus screening model being trained for Group 1 demo access.",
-    route: "/scans/upload",
+    route: "/modules/vkg",
     accent: "bg-emerald-50 text-emerald-800 ring-emerald-200",
     icon: Activity
   },

@@ -1,0 +1,8 @@
+{
+  "group": "group-2",
+  "name": "vkg-corneal-detection",
+  "frontendRoutes": ["/modules/vkg", "/modules/corneal"],
+  "backendServices": ["afio-corneal-ai-backend"],
+  "storagePrefix": "{hospital_id}/vkg-corneal",
+  "notes": "Group 2 owns VKG/corneal disease detection. It plugs into the shared hospital-scoped platform."
+}

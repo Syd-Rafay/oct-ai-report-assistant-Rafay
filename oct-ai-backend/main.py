@@ -248,6 +248,9 @@ class FeedbackEmailRequest(BaseModel):
 
 class FeedbackCreateRequest(BaseModel):
     type: str
+    clinic_id: str | None = None
+    hospital_name: str | None = None
+    module_id: str | None = None
     name: str
     email: str | None = None
     phone: str | None = None
@@ -752,6 +755,9 @@ def map_feedback_entry(row: dict[str, Any], messages: list[dict[str, Any]]) -> d
     return {
         "id": row.get("id", ""),
         "type": row.get("type", "feedback"),
+        "clinicId": row.get("clinic_id") or "",
+        "hospitalName": row.get("hospital_name") or "",
+        "moduleId": row.get("module_id") or "",
         "name": row.get("name", ""),
         "email": row.get("email") or "",
         "phone": row.get("phone") or "",
@@ -807,6 +813,9 @@ def create_feedback(input_data: FeedbackCreateRequest):
             "feedback_entries",
             {
                 "type": feedback_type,
+                "clinic_id": (input_data.clinic_id or "").strip() or None,
+                "hospital_name": (input_data.hospital_name or "").strip() or None,
+                "module_id": (input_data.module_id or "").strip() or None,
                 "name": input_data.name.strip(),
                 "email": (input_data.email or "").strip() or None,
                 "phone": (input_data.phone or "").strip() or None,

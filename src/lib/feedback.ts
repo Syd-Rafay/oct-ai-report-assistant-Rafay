@@ -56,6 +56,9 @@ export async function submitFeedback(input: Omit<FeedbackEntry, "id" | "status" 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: input.type,
+        clinic_id: input.clinicId || null,
+        hospital_name: input.hospitalName || null,
+        module_id: input.moduleId || null,
         name: input.name,
         email: input.email || null,
         phone: input.phone || null,

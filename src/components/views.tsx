@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { PageTitle } from "./app-shell";
 import { Button, Card, CardHeader, EmptyState, SafetyNotice, StatusBadge } from "./ui";
-import { predictOCT } from "@/lib/ai-api";
+import { predictOCTWithGradcam } from "@/lib/ai-api";
 import { useDemoStore } from "@/lib/demo-store";
 import { addFeedbackResponse, getCachedFeedbackEntries, getFeedbackEntries, submitFeedback, updateFeedbackStatus } from "@/lib/feedback";
 import { prepareScanImages } from "@/lib/image-processing";
@@ -194,7 +194,6 @@ export function LoginView() {
   const [fullName, setFullName] = useState("");
   const [requestedRole, setRequestedRole] = useState<Role>("doctor");
   const [hospitalId, setHospitalId] = useState("");
-  const [department, setDepartment] = useState("");
   const [doctorId, setDoctorId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -221,7 +220,7 @@ export function LoginView() {
           fullName: fullName || email.split("@")[0],
           role: requestedRole,
           hospitalId,
-          department,
+          department: "",
           doctorId
         });
       } else {
@@ -327,10 +326,6 @@ export function LoginView() {
                       <option key={hospital.id} value={hospital.id}>{hospital.name}</option>
                     ))}
                   </select>
-                </div>
-                <div>
-                  <label className="label">Department requested</label>
-                  <input className="field mt-1" value={department} placeholder="OCT, VKG, Corneal, Retina..." onChange={(event) => setDepartment(event.target.value)} />
                 </div>
                 {requestedRole === "doctor" ? (
                   <div>
@@ -538,18 +533,24 @@ function AuthCard({ title, subtitle, action }: { title: string; subtitle: string
 export function DashboardView() {
   const store = useDemoStore();
   const visibleModuleIds = new Set(store.visibleModuleIds);
-  const [accessKey, setAccessKey] = useState("");
-  const [accessMessage, setAccessMessage] = useState("");
   const platformModules = [
     {
-      id: "oct-vkg",
-      enabled: visibleModuleIds.has("oct") || visibleModuleIds.has("vkg"),
-      title: "OCT + VKG Report Generation",
+      id: "oct",
+      enabled: visibleModuleIds.has("oct"),
+      title: "OCT",
       owner: "Group 1",
-      route: "/modules/oct-vkg",
+      route: "/modules/oct",
       status: "Live",
-      summary: "Patient workflow, OCT analysis, VKG report drafting, doctor review, and approved PDF reports.",
-      accessHint: "Included in the current AFIO demo package."
+      summary: "OCT patients, upload/test workflow, EfficientNet analysis, Grad-CAM when enabled, doctor review, and approved reports."
+    },
+    {
+      id: "vkg",
+      enabled: visibleModuleIds.has("vkg"),
+      title: "VKG",
+      owner: "Group 1 / Group 2",
+      route: "/modules/vkg",
+      status: "Workflow shell",
+      summary: "VKG/topography patients and reports live separately from OCT. Group 2 detection can connect here when ready."
     },
     {
       id: "corneal",
@@ -559,7 +560,7 @@ export function DashboardView() {
       route: "/modules/corneal",
       status: "Model ready",
       summary: "Keratoconus/corneal screening engine exposed as a separate API and report result module.",
-      accessHint: "Enter a Corneal module access key after the hospital purchases this model."
+      accessHint: "Enable from Business Admin after purchase."
     },
     {
       id: "retina",
@@ -575,20 +576,11 @@ export function DashboardView() {
   const visibleModules = store.currentUser.role === "afio_admin" ? platformModules : platformModules.filter((module) => module.enabled);
   const enabledCount = visibleModules.filter((module) => module.enabled).length;
   const hospital = store.currentHospital;
-
-  const activateDemoKey = () => {
-    if (!accessKey.trim()) {
-      setAccessMessage("Enter a module access key or API license code.");
-      return;
-    }
-    setAccessMessage("Access key captured for admin review. In production this validates against clinic_modules/module_api_keys.");
-  };
-
   return (
     <>
       <PageTitle
         title="AFIO Platform Dashboard"
-        subtitle={store.currentUser.role === "afio_admin" ? "Business admin preview. Hospitals only see the modules enabled on their subscription." : "Choose one of your hospital's purchased AI modules. Patients, scans, reports, feedback, and API keys stay scoped to the selected department."}
+        subtitle={store.currentUser.role === "afio_admin" ? "Business Admin preview. Hospitals only see services enabled from the business control panel." : "Choose one of your hospital's purchased services. Patients, reports, feedback, and storage remain scoped to the selected hospital."}
       />
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="p-5">
@@ -628,7 +620,7 @@ export function DashboardView() {
                 ) : (
                   <span className="inline-flex items-center gap-1 text-sm font-bold text-slate-400">
                     <LockKeyhole size={14} />
-                    Needs key
+                    Not enabled
                   </span>
                 )}
               </div>
@@ -639,14 +631,14 @@ export function DashboardView() {
         {visibleModules.length === 0 ? <EmptyState title="No modules enabled" body="Ask the hospital admin or AFIO business admin to enable a purchased service." /> : null}
       </div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_360px]">
+      <div className="mt-5 grid gap-5">
         <Card className="p-5">
-          <CardHeader title="How module access works" subtitle="This is the access model we will connect to Supabase module_api_keys." />
+          <CardHeader title="How hospital access works" subtitle="Access is managed from Business Admin, not by doctors entering module keys." />
           <div className="grid gap-3 md:grid-cols-3">
             {[
-              ["1", "Hospital buys module", "Admin enables OCT/VKG, Corneal, Retina, or all three."],
-              ["2", "API key is attached", "Each module points to its own Render/model service."],
-              ["3", "Data stays separated", "Patients, reports, feedback, and templates are filtered by department."]
+              ["1", "Hospital is registered", "Business Admin creates Shifa, Al Noor, or another hospital."],
+              ["2", "Services are enabled", "Business Admin gives or removes OCT, VKG, Corneal, or Retina access."],
+              ["3", "Clinical data is scoped", "Patients, reports, storage paths, and feedback stay under that hospital."]
             ].map(([step, title, body]) => (
               <div key={step} className="rounded-md border border-slate-200 bg-slate-50 p-4">
                 <p className="text-xs font-black text-clinic-700">STEP {step}</p>
@@ -656,30 +648,22 @@ export function DashboardView() {
             ))}
           </div>
         </Card>
-        {store.currentUser.role === "afio_admin" || store.currentUser.role === "hospital_admin" || store.currentUser.role === "admin" ? <Card className="p-5">
-          <CardHeader title="Activate module" subtitle="Demo access-key capture before backend validation." />
-          <label className="block">
-            <span className="label">Module access key</span>
-            <input className="field mt-1" value={accessKey} onChange={(event) => setAccessKey(event.target.value)} placeholder="AFIO-MODULE-KEY" />
-          </label>
-          <Button className="mt-4 w-full" onClick={activateDemoKey}>
-            <LockKeyhole size={16} />
-            Validate Access
-          </Button>
-          {accessMessage ? <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">{accessMessage}</p> : null}
-        </Card> : null}
       </div>
     </>
   );
 }
 
-export function OctVkgModuleView() {
+export function OctModuleView() {
   const store = useDemoStore();
   const [feedbackCount, setFeedbackCount] = useState(0);
-  const pending = store.data.reports.filter((report) => report.status !== "approved").length;
-  const approved = store.data.reports.filter((report) => report.status === "approved").length;
+  const octScans = store.data.scans.filter((scan) => (scan.moduleId ?? "oct") === "oct");
+  const octReports = store.data.reports.filter((report) => (report.moduleId ?? "oct") === "oct");
+  const octPatientIds = new Set(octScans.map((scan) => scan.patientId));
+  const octPatients = store.data.patients.filter((patient) => octPatientIds.has(patient.id) || !patient.departmentId);
+  const pending = octReports.filter((report) => report.status !== "approved").length;
+  const approved = octReports.filter((report) => report.status === "approved").length;
   const today = new Date().toISOString().slice(0, 10);
-  const todayReports = store.data.reports.filter((report) => report.createdAt.startsWith(today)).length;
+  const todayReports = octReports.filter((report) => report.createdAt.startsWith(today)).length;
   useEffect(() => {
     let cancelled = false;
     getFeedbackEntries()
@@ -694,19 +678,27 @@ export function OctVkgModuleView() {
     };
   }, []);
   const stats = [
-    ["Department patients", store.data.patients.length],
-    ["OCT/VKG uploads", store.data.scans.length],
+    ["OCT patients", octPatients.length],
+    ["OCT tests", octScans.length],
     ["Pending reports", pending],
     ["Approved reports", approved],
     ["Reports today", todayReports],
-    ["Department feedback", feedbackCount]
+    ["Hospital feedback", feedbackCount]
+  ];
+  const actions = [
+    { title: "Patients", body: "Register, search, edit, and open OCT patient records.", href: "/patients/search", icon: Search },
+    { title: "New Patient", body: "Create a patient before uploading an OCT test.", href: "/patients/new", icon: Plus },
+    { title: "OCT Test", body: "Upload OCT image, run model analysis, and save the scan.", href: "/scans/upload", icon: Upload },
+    { title: "Reports", body: "Review drafts, approve reports, and download PDFs.", href: "/reports/history", icon: ClipboardCheck },
+    { title: "Templates", body: "Edit OCT report templates used after classification.", href: "/admin/templates", icon: FileText },
+    { title: "Feedback", body: "Review complaints and feedback for this hospital.", href: "/admin/feedback", icon: Inbox }
   ];
 
   return (
     <>
       <PageTitle
-        title="OCT + VKG Report Generation"
-        subtitle="Purchased Group 1 module for OCT analysis, VKG report drafting, doctor review, and approved report delivery."
+        title="OCT"
+        subtitle="Full OCT workflow: patients, tests, EfficientNet analysis, Grad-CAM when enabled, report drafting, doctor review, and PDF delivery."
         action={
           <div className="grid gap-2 sm:flex">
             <Link href="/patients/new" className="block">
@@ -731,6 +723,22 @@ export function OctVkgModuleView() {
         }
       />
       <SafetyNotice />
+      <div className="mt-5 grid gap-4 md:grid-cols-3">
+        {actions.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Link key={item.title} href={item.href} className="block">
+              <Card className="h-full p-5 transition hover:-translate-y-0.5 hover:shadow-panel">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-clinic-50 text-clinic-700 ring-1 ring-clinic-100">
+                  <Icon size={20} />
+                </div>
+                <h3 className="mt-4 text-lg font-black text-slate-950">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{item.body}</p>
+              </Card>
+            </Link>
+          );
+        })}
+      </div>
       <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {stats.map(([label, value]) => (
           <Card key={label} className="p-5">
@@ -741,9 +749,9 @@ export function OctVkgModuleView() {
       </div>
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Recent OCT/VKG Patients" subtitle="This list belongs to the OCT/VKG department scope." />
+          <CardHeader title="Recent OCT Patients" subtitle="Open a patient profile to view tests and reports." />
           <div className="divide-y divide-slate-100">
-            {store.data.patients.slice(0, 5).map((patient) => (
+            {octPatients.slice(0, 5).map((patient) => (
               <Link key={patient.id} href={`/patients/${patient.id}`} className="flex items-center justify-between px-5 py-4 hover:bg-slate-50">
                 <div>
                   <p className="font-bold text-slate-900">{patient.fullName}</p>
@@ -752,11 +760,56 @@ export function OctVkgModuleView() {
                 <p className="text-sm font-semibold text-clinic-700">Open</p>
               </Link>
             ))}
+            {octPatients.length === 0 ? <EmptyState title="No OCT patients yet" body="Create a patient or upload the first OCT test." /> : null}
           </div>
         </Card>
         <Card>
-          <CardHeader title="Recent OCT/VKG Reports" subtitle="Reports from other departments should not appear here." />
-          <ReportRows reports={store.data.reports.slice(0, 5)} />
+          <CardHeader title="Recent OCT Reports" subtitle="Draft, pending, and approved reports for OCT." />
+          <ReportRows reports={octReports.slice(0, 5)} />
+        </Card>
+      </div>
+    </>
+  );
+}
+
+export function VkgModuleView() {
+  const store = useDemoStore();
+  const vkgScans = store.data.scans.filter((scan) => scan.moduleId === "vkg" || scan.scanType === "VKG");
+  const vkgReports = store.data.reports.filter((report) => report.moduleId === "vkg");
+  const vkgPatientIds = new Set(vkgScans.map((scan) => scan.patientId));
+  const vkgPatients = store.data.patients.filter((patient) => vkgPatientIds.has(patient.id));
+  return (
+    <>
+      <PageTitle
+        title="VKG"
+        subtitle="Separate VKG/topography workspace. Group 2 detection can connect here later without mixing OCT patients or reports."
+      />
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-slate-500">VKG patients</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{vkgPatients.length}</p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-slate-500">VKG tests</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{vkgScans.length}</p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-slate-500">VKG reports</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{vkgReports.length}</p>
+        </Card>
+      </div>
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <Card className="p-5">
+          <CardHeader title="VKG workflow" subtitle="Same shape as OCT, with VKG-specific test and report logic added when the model/API is ready." />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {["Patients", "Tests", "Reports", "Templates"].map((item) => (
+              <div key={item} className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm font-black text-slate-700">{item}</div>
+            ))}
+          </div>
+        </Card>
+        <Card>
+          <CardHeader title="Recent VKG Reports" subtitle="No OCT reports appear here." />
+          <ReportRows reports={vkgReports.slice(0, 5)} />
         </Card>
       </div>
     </>
@@ -764,12 +817,10 @@ export function OctVkgModuleView() {
 }
 
 export function LockedModuleView({ moduleName, owner, description }: { moduleName: string; owner: string; description: string }) {
-  const [accessKey, setAccessKey] = useState("");
-  const [message, setMessage] = useState("");
   return (
     <>
-      <PageTitle title={moduleName} subtitle={`${owner} module. Access is controlled by hospital license and module API key.`} />
-      <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
+      <PageTitle title={moduleName} subtitle={`${owner} module. Access is controlled by hospital subscription in Business Admin.`} />
+      <div className="grid gap-5">
         <Card className="p-5">
           <CardHeader title="Module locked" subtitle={description} />
           <div className="grid gap-3 md:grid-cols-3">
@@ -778,23 +829,8 @@ export function LockedModuleView({ moduleName, owner, description }: { moduleNam
             ))}
           </div>
           <p className="mt-5 text-sm leading-6 text-slate-600">
-            When this module is enabled, its own patient list, upload flow, AI result page, report templates, feedback inbox, and API key will be scoped by department.
+            When this module is enabled from Business Admin, its own patient list, upload flow, AI result page, report templates, and feedback inbox will be scoped by hospital.
           </p>
-        </Card>
-        <Card className="p-5">
-          <CardHeader title="Enter access key" subtitle="Demo activation UI before Supabase validation." />
-          <label className="block">
-            <span className="label">Access/API key</span>
-            <input className="field mt-1" value={accessKey} onChange={(event) => setAccessKey(event.target.value)} placeholder="AFIO-CORNEAL-..." />
-          </label>
-          <Button
-            className="mt-4 w-full"
-            onClick={() => setMessage(accessKey.trim() ? "Key captured. Admin validation will enable this module for the clinic." : "Enter an access key first.")}
-          >
-            <LockKeyhole size={16} />
-            Request Access
-          </Button>
-          {message ? <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">{message}</p> : null}
         </Card>
       </div>
     </>
@@ -804,6 +840,14 @@ export function LockedModuleView({ moduleName, owner, description }: { moduleNam
 export function AfioBusinessAdminView() {
   const store = useDemoStore();
   const [error, setError] = useState("");
+  const [savingHospitalId, setSavingHospitalId] = useState("");
+  const [newHospital, setNewHospital] = useState({
+    name: "",
+    code: "",
+    adminEmail: "",
+    subscriptionStatus: "trial" as "trial" | "active" | "past_due" | "suspended",
+    enabledModules: ["oct"] as ModuleId[]
+  });
   const allModuleIds: ModuleId[] = ["oct", "vkg", "corneal", "retina"];
   const moduleNames: Record<ModuleId, string> = {
     oct: "OCT",
@@ -812,17 +856,33 @@ export function AfioBusinessAdminView() {
     retina: "Retina"
   };
 
-  const updateHospital = (hospitalId: string, input: Parameters<typeof store.updateHospitalAccess>[1]) => {
+  const updateHospital = async (hospitalId: string, input: Parameters<typeof store.updateHospitalAccess>[1]) => {
     setError("");
+    setSavingHospitalId(hospitalId);
     try {
-      store.updateHospitalAccess(hospitalId, input);
+      await store.updateHospitalAccess(hospitalId, input);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update hospital.");
+    } finally {
+      setSavingHospitalId("");
+    }
+  };
+
+  const createHospital = async () => {
+    setError("");
+    setSavingHospitalId("new");
+    try {
+      await store.createHospital(newHospital);
+      setNewHospital({ name: "", code: "", adminEmail: "", subscriptionStatus: "trial", enabledModules: ["oct"] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add hospital.");
+    } finally {
+      setSavingHospitalId("");
     }
   };
 
   if (store.currentUser.role !== "afio_admin") {
-    return <EmptyState title="AFIO admin only" body="This page controls business access, subscriptions, and module availability." />;
+    return <EmptyState title="Business Admin only" body="This page controls business access, subscriptions, and module availability." />;
   }
 
   return (
@@ -832,6 +892,44 @@ export function AfioBusinessAdminView() {
         subtitle="Manage hospitals, subscriptions, module access, and service status. This area intentionally has no patients or clinical reports."
       />
       {error ? <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
+      <Card className="mb-5 p-5">
+        <CardHeader title="Add hospital" subtitle="New hospitals become selectable during staff signup and receive their own scoped patients, reports, feedback, and storage paths." />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <Field label="Hospital name" value={newHospital.name} onChange={(value) => setNewHospital({ ...newHospital, name: value })} />
+          <Field label="Code" value={newHospital.code} placeholder="SHIFA" onChange={(value) => setNewHospital({ ...newHospital, code: value })} />
+          <Field label="Admin email optional" value={newHospital.adminEmail} onChange={(value) => setNewHospital({ ...newHospital, adminEmail: value })} />
+          <SelectField
+            label="Subscription"
+            value={newHospital.subscriptionStatus}
+            options={["trial", "active", "past_due", "suspended"]}
+            optionLabels={{ trial: "Trial", active: "Active", past_due: "Past due", suspended: "Suspended" }}
+            onChange={(value) => setNewHospital({ ...newHospital, subscriptionStatus: value as typeof newHospital.subscriptionStatus })}
+          />
+          <div className="flex items-end">
+            <Button className="w-full" disabled={savingHospitalId === "new" || !newHospital.name || !newHospital.code} onClick={createHospital}>
+              <Plus size={16} />
+              {savingHospitalId === "new" ? "Adding..." : "Add Hospital"}
+            </Button>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {allModuleIds.map((moduleId) => {
+            const enabled = newHospital.enabledModules.includes(moduleId);
+            return (
+              <button
+                key={moduleId}
+                className={`rounded-md border px-3 py-2 text-sm font-bold ${enabled ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-slate-50 text-slate-500"}`}
+                onClick={() => setNewHospital({
+                  ...newHospital,
+                  enabledModules: enabled ? newHospital.enabledModules.filter((id) => id !== moduleId) : [...newHospital.enabledModules, moduleId]
+                })}
+              >
+                {enabled ? "On" : "Off"} - {moduleNames[moduleId]}
+              </button>
+            );
+          })}
+        </div>
+      </Card>
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="p-5">
           <p className="text-sm font-semibold text-slate-500">Hospitals</p>
@@ -866,7 +964,8 @@ export function AfioBusinessAdminView() {
                 <select
                   className="field min-h-10 py-2 text-sm font-semibold"
                   value={hospital.subscriptionStatus}
-                  onChange={(event) => updateHospital(hospital.id, { subscriptionStatus: event.target.value as typeof hospital.subscriptionStatus })}
+                  disabled={savingHospitalId === hospital.id}
+                  onChange={(event) => void updateHospital(hospital.id, { subscriptionStatus: event.target.value as typeof hospital.subscriptionStatus })}
                 >
                   <option value="trial">Trial</option>
                   <option value="active">Active</option>
@@ -875,9 +974,10 @@ export function AfioBusinessAdminView() {
                 </select>
                 <Button
                   variant={hospital.isActive ? "secondary" : "primary"}
-                  onClick={() => updateHospital(hospital.id, { isActive: !hospital.isActive })}
+                  disabled={savingHospitalId === hospital.id}
+                  onClick={() => void updateHospital(hospital.id, { isActive: !hospital.isActive })}
                 >
-                  {hospital.isActive ? "Disable" : "Enable"}
+                  {savingHospitalId === hospital.id ? "Saving..." : hospital.isActive ? "Disable" : "Enable"}
                 </Button>
               </div>
             </div>
@@ -888,6 +988,7 @@ export function AfioBusinessAdminView() {
                   <button
                     key={moduleId}
                     className={`rounded-md border p-4 text-left transition ${enabled ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-slate-50 text-slate-500"}`}
+                    disabled={savingHospitalId === hospital.id}
                     onClick={() =>
                       updateHospital(hospital.id, {
                         enabledModules: enabled
@@ -1279,7 +1380,7 @@ export function UploadScanView() {
     }
     setLoading(true);
     try {
-      const prediction = await predictOCT(predictionFile);
+      const prediction = await predictOCTWithGradcam(predictionFile);
       if (!prediction.is_valid_oct) {
         const message =
           prediction.prediction === "INVALID_IMAGE"
@@ -1370,7 +1471,7 @@ export function AnalysisView({ id }: { id: string }) {
       const blob = await response.blob();
       const file = new File([blob], `${scan.id}.jpg`, { type: blob.type || "image/jpeg" });
       const prepared = await prepareScanImages(file);
-      const prediction = await predictOCT(prepared.predictionFile);
+      const prediction = await predictOCTWithGradcam(prepared.predictionFile);
       const result = await store.saveBackendAnalysis(scan, prediction);
       return result;
     } catch (err) {
@@ -2383,7 +2484,7 @@ export function AdminUsersView() {
 
   return (
     <>
-      <PageTitle title="User Access" subtitle="Approve hospital staff and assign clinical roles. AFIO admins see all hospitals; hospital admins see only their own staff." />
+      <PageTitle title="User Access" subtitle="Approve hospital staff and assign clinical roles. Business Admin sees all hospitals; hospital admins see only their own staff." />
       {error ? <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
       <div className="space-y-3 md:hidden">
         {visibleProfiles.map((profile) => {
@@ -2462,7 +2563,7 @@ export function AdminUsersView() {
                     disabled={savingId === profile.id || profile.role === "afio_admin"}
                     onChange={(event) => updateAccess(profile.id, { role: event.target.value as Role })}
                   >
-                    <option value="afio_admin">AFIO Admin</option>
+                    <option value="afio_admin">Business Admin</option>
                     <option value="doctor">Doctor</option>
                     <option value="assistant">Assistant</option>
                     <option value="hospital_admin">Hospital Admin</option>
@@ -2847,8 +2948,11 @@ function FeedbackDialog({
   reportId?: string;
   patientCode?: string;
 }) {
+  const store = useDemoStore();
   const [form, setForm] = useState({
     type: "feedback" as FeedbackEntry["type"],
+    clinicId: store.currentHospital?.id ?? "",
+    moduleId: "oct" as ModuleId,
     name: "",
     email: "",
     phone: "",
@@ -2872,6 +2976,9 @@ function FeedbackDialog({
     try {
       entry = await submitFeedback({
         type: form.type,
+        clinicId: form.clinicId || undefined,
+        hospitalName: store.data.hospitals.find((hospital) => hospital.id === form.clinicId)?.name,
+        moduleId: form.moduleId,
         name: form.name,
         email: form.email || undefined,
         phone: form.phone || undefined,
@@ -2923,6 +3030,22 @@ function FeedbackDialog({
                 optionLabels={{ feedback: "Feedback", complaint: "Complaint" }}
                 onChange={(value) => setForm({ ...form, type: value as FeedbackEntry["type"] })}
               />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <SelectField
+                  label="Hospital"
+                  value={form.clinicId}
+                  options={["", ...store.data.hospitals.map((hospital) => hospital.id)]}
+                  optionLabels={{ "": "Select hospital", ...Object.fromEntries(store.data.hospitals.map((hospital) => [hospital.id, hospital.name])) }}
+                  onChange={(value) => setForm({ ...form, clinicId: value })}
+                />
+                <SelectField
+                  label="Service"
+                  value={form.moduleId}
+                  options={["oct", "vkg", "corneal", "retina"]}
+                  optionLabels={{ oct: "OCT", vkg: "VKG", corneal: "Corneal", retina: "Retina" }}
+                  onChange={(value) => setForm({ ...form, moduleId: value as ModuleId })}
+                />
+              </div>
               <Field label="Your name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />

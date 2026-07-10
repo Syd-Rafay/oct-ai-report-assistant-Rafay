@@ -1,0 +1,8 @@
+{
+  "group": "group-1",
+  "name": "oct-vkg-workflow",
+  "frontendRoutes": ["/modules/oct", "/modules/vkg", "/patients/*", "/scans/*", "/reports/*"],
+  "backendServices": ["oct-ai-backend"],
+  "storagePrefix": "{hospital_id}/oct",
+  "notes": "Group 1 owns OCT workflow now. VKG remains a separate workflow shell until model/API integration is finalized."
+}

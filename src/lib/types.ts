@@ -136,6 +136,9 @@ export type AuditLog = {
 export type FeedbackEntry = {
   id: string;
   type: "feedback" | "complaint";
+  clinicId?: string;
+  hospitalName?: string;
+  moduleId?: ModuleId;
   name: string;
   email?: string;
   phone?: string;

@@ -2,6 +2,9 @@ create table if not exists feedback_entries (
   id uuid primary key default gen_random_uuid(),
   type text not null check (type in ('feedback', 'complaint')),
   status text not null default 'new' check (status in ('new', 'reviewing', 'resolved')),
+  clinic_id uuid references clinics(id),
+  hospital_name text,
+  module_id text check (module_id in ('oct', 'vkg', 'corneal', 'retina')),
   name text not null,
   email text,
   phone text,
@@ -11,6 +14,10 @@ create table if not exists feedback_entries (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table feedback_entries add column if not exists clinic_id uuid references clinics(id);
+alter table feedback_entries add column if not exists hospital_name text;
+alter table feedback_entries add column if not exists module_id text check (module_id in ('oct', 'vkg', 'corneal', 'retina'));
 
 create table if not exists feedback_messages (
   id uuid primary key default gen_random_uuid(),
@@ -22,6 +29,7 @@ create table if not exists feedback_messages (
 
 create index if not exists feedback_entries_created_at_idx on feedback_entries(created_at desc);
 create index if not exists feedback_entries_status_idx on feedback_entries(status);
+create index if not exists feedback_entries_clinic_module_idx on feedback_entries(clinic_id, module_id);
 create index if not exists feedback_messages_feedback_id_idx on feedback_messages(feedback_id);
 
 alter table feedback_entries enable row level security;

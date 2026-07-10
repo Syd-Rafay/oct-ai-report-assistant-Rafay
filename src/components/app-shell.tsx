@@ -22,7 +22,7 @@ import { getModulesByIds } from "@/lib/modules";
 import { Button } from "./ui";
 
 const businessItems = [
-  { href: "/afio/admin", label: "AFIO Business", icon: ShieldCheck },
+  { href: "/afio/admin", label: "Business Admin", icon: ShieldCheck },
   { href: "/dashboard", label: "Hospital Preview", icon: LayoutDashboard },
   { href: "/change-password", label: "Change Password", icon: KeyRound }
 ];
@@ -33,8 +33,8 @@ const baseNavItems = [
 ];
 
 const moduleNavItems = {
-  oct: { href: "/modules/oct-vkg", label: "OCT + VKG Reports", icon: ScanEye },
-  vkg: { href: "/modules/oct-vkg", label: "OCT + VKG Reports", icon: ScanEye },
+  oct: { href: "/modules/oct", label: "OCT", icon: ScanEye },
+  vkg: { href: "/modules/vkg", label: "VKG", icon: Activity },
   corneal: { href: "/modules/corneal", label: "Corneal Detection", icon: Activity },
   retina: { href: "/modules/retina", label: "Retinal Screening", icon: Eye }
 };
@@ -157,7 +157,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-wide text-clinic-700">{store.currentUser.role === "afio_admin" ? "Business workspace" : "Clinical workspace"}</p>
-              <h1 className="text-xl font-black text-slate-950">{store.currentUser.role === "afio_admin" ? "AFIO Access Control" : "AFIO AI Report Platform"}</h1>
+              <h1 className="text-xl font-black text-slate-950">{store.currentUser.role === "afio_admin" ? "Business Admin" : "AFIO AI Report Platform"}</h1>
             </div>
             <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
               <select

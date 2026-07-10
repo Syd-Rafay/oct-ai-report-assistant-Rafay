@@ -394,6 +394,10 @@ function octScansPublicPath(url?: string) {
   return decodeURIComponent(url.slice(index + marker.length));
 }
 
+function scanStoragePrefix(clinicId?: string | null, moduleId: ModuleId = "oct", patientId = "unassigned") {
+  return `${clinicId || "unassigned-hospital"}/${moduleId}/${patientId}`;
+}
+
 function userProfile(user: User): Profile {
   const email = user.email ?? "";
   const isSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL;
@@ -675,14 +679,24 @@ export function useDemoStore() {
     const currentProfile = profiles.find((profile) => profile.id === user.id) ?? userProfile(user);
     requireApprovedProfile(currentProfile);
 
+    const patients = ((patientsResult.data ?? []) as DbPatient[]).map(mapPatient);
+    const scans = ((scansResult.data ?? []) as DbScan[]).map(mapScan);
+    const aiResults = ((aiResultsResult.data ?? []) as DbAiResult[]).map(mapAiResult);
+    const reports = ((reportsResult.data ?? []) as DbReport[]).map(mapReport);
+    const scopedPatients = currentProfile.role === "afio_admin" ? patients : patients.filter((patient) => !patient.clinicId || patient.clinicId === currentProfile.clinicId);
+    const scopedPatientIds = new Set(scopedPatients.map((patient) => patient.id));
+    const scopedScans = currentProfile.role === "afio_admin" ? scans : scans.filter((scan) => scopedPatientIds.has(scan.patientId) || scan.clinicId === currentProfile.clinicId);
+    const scopedScanIds = new Set(scopedScans.map((scan) => scan.id));
+    const scopedReports = currentProfile.role === "afio_admin" ? reports : reports.filter((report) => scopedPatientIds.has(report.patientId) || report.clinicId === currentProfile.clinicId);
+
     setData({
       currentUserId: user.id,
       hospitals: ((hospitalsResult.data ?? []) as DbHospital[]).map(mapHospital),
       profiles,
-      patients: ((patientsResult.data ?? []) as DbPatient[]).map(mapPatient),
-      scans: ((scansResult.data ?? []) as DbScan[]).map(mapScan),
-      aiResults: ((aiResultsResult.data ?? []) as DbAiResult[]).map(mapAiResult),
-      reports: ((reportsResult.data ?? []) as DbReport[]).map(mapReport),
+      patients: scopedPatients,
+      scans: scopedScans,
+      aiResults: currentProfile.role === "afio_admin" ? aiResults : aiResults.filter((result) => scopedScanIds.has(result.scanId)),
+      reports: scopedReports,
       auditLogs: ((auditLogsResult.data ?? []) as DbAuditLog[]).map(mapAuditLog)
     });
   };
@@ -991,7 +1005,8 @@ export function useDemoStore() {
       const patient = data.patients.find((item) => item.id === input.patientId);
       if (mode === "supabase" && supabase && input.file) {
         const extension = input.file.name.split(".").pop()?.toLowerCase() || "jpg";
-        const storagePath = `${input.patientId}/${crypto.randomUUID()}.${extension}`;
+        const moduleId: ModuleId = "oct";
+        const storagePath = `${scanStoragePrefix(patient?.clinicId ?? currentUser.clinicId, moduleId, input.patientId)}/${crypto.randomUUID()}.${extension}`;
         const upload = await supabase.storage.from("oct-scans").upload(storagePath, input.file, {
           contentType: input.file.type,
           upsert: false
@@ -1008,7 +1023,7 @@ export function useDemoStore() {
             scan_type: "OCT",
             clinic_id: patient?.clinicId ?? currentUser.clinicId ?? null,
             department_id: patient?.departmentId ?? currentUser.defaultDepartmentId ?? null,
-            module_id: "oct",
+            module_id: moduleId,
             eye_side: input.eyeSide,
             scan_notes: input.scanNotes || null,
             uploaded_by: actorId
@@ -1054,7 +1069,7 @@ export function useDemoStore() {
 
       if (mode === "supabase" && supabase) {
         const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-        const storagePath = `${existing.patientId}/${crypto.randomUUID()}.${extension}`;
+        const storagePath = `${scanStoragePrefix(existing.clinicId ?? currentUser.clinicId, existing.moduleId ?? "oct", existing.patientId)}/${crypto.randomUUID()}.${extension}`;
         const upload = await supabase.storage.from("oct-scans").upload(storagePath, file, {
           contentType: file.type,
           upsert: false
@@ -1185,6 +1200,7 @@ export function useDemoStore() {
       const probabilities = prediction.probabilities as Record<DiseaseClass, number>;
 
       if (mode === "supabase" && supabase) {
+        const patient = data.patients.find((item) => item.id === scan.patientId);
         const existingAiIds = data.aiResults.filter((result) => result.scanId === scan.id).map((result) => result.id);
         const oldHeatmapPaths = data.aiResults
           .filter((result) => result.scanId === scan.id)
@@ -1201,7 +1217,7 @@ export function useDemoStore() {
         }
         let heatmapUrl: string | null = null;
         if (prediction.gradcam_overlay_base64) {
-          const heatmapPath = `${scan.patientId}/heatmaps/${scan.id}-${crypto.randomUUID()}.png`;
+          const heatmapPath = `${scanStoragePrefix(scan.clinicId ?? patient?.clinicId ?? currentUser.clinicId, scan.moduleId ?? "oct", scan.patientId)}/heatmaps/${scan.id}-${crypto.randomUUID()}.png`;
           const upload = await supabase.storage.from("oct-scans").upload(heatmapPath, dataUrlToBlob(prediction.gradcam_overlay_base64), {
             contentType: "image/png",
             upsert: false
@@ -1449,7 +1465,7 @@ export function useDemoStore() {
         throw new Error("Hospital admins can only manage users from their hospital.");
       }
       if (input.role === "afio_admin" && currentUser.role !== "afio_admin") {
-        throw new Error("Only AFIO admins can grant AFIO admin access.");
+        throw new Error("Only Business Admin can grant Business Admin access.");
       }
       if (!supabase || mode !== "supabase") {
         const profiles = data.profiles.map((profile) =>
@@ -1480,9 +1496,90 @@ export function useDemoStore() {
       }));
       await insertAudit(actorId, "User access updated", "profile", saved.id, `${saved.role} / ${saved.isActive ? "approved" : "suspended"}`);
     },
-    updateHospitalAccess(hospitalId: string, input: { isActive?: boolean; subscriptionStatus?: Hospital["subscriptionStatus"]; enabledModules?: ModuleId[] }) {
+    async createHospital(input: { name: string; code: string; adminEmail?: string; subscriptionStatus: Hospital["subscriptionStatus"]; enabledModules: ModuleId[] }) {
       if (currentUser.role !== "afio_admin") {
-        throw new Error("Only AFIO admins can manage hospital subscriptions.");
+        throw new Error("Only Business Admin can add hospitals.");
+      }
+      const code = input.code.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "-");
+      if (!input.name.trim() || !code) throw new Error("Hospital name and code are required.");
+
+      if (mode === "supabase" && supabase) {
+        const { data: clinicRow, error } = await supabase
+          .from("clinics")
+          .insert({
+            name: input.name.trim(),
+            code,
+            admin_email: input.adminEmail || null,
+            subscription_status: input.subscriptionStatus,
+            is_active: true,
+            allow_self_signup: true
+          })
+          .select("*")
+          .single();
+        if (error) throw new Error(error.message);
+        const clinic = clinicRow as DbHospital;
+        if (input.enabledModules.length) {
+          const { error: moduleError } = await supabase.from("clinic_modules").insert(
+            input.enabledModules.map((moduleId) => ({
+              clinic_id: clinic.id,
+              module_id: moduleId,
+              is_enabled: true,
+              package_name: input.subscriptionStatus
+            }))
+          );
+          if (moduleError) throw new Error(moduleError.message);
+        }
+        const hospital: Hospital = { ...mapHospital({ ...clinic, clinic_modules: [] }), enabledModules: input.enabledModules };
+        setData((current) => ({ ...current, hospitals: [hospital, ...current.hospitals] }));
+        await insertAudit(actorId, "Hospital created", "hospital", hospital.id, hospital.name);
+        return hospital;
+      }
+
+      const hospital: Hospital = {
+        id: id("hospital"),
+        name: input.name.trim(),
+        code,
+        adminEmail: input.adminEmail || undefined,
+        subscriptionStatus: input.subscriptionStatus,
+        isActive: true,
+        allowSelfSignup: true,
+        enabledModules: input.enabledModules,
+        createdAt: now()
+      };
+      commit(audit({ ...data, hospitals: [hospital, ...data.hospitals] }, "Hospital created", "hospital", hospital.id, hospital.name));
+      return hospital;
+    },
+    async updateHospitalAccess(hospitalId: string, input: { isActive?: boolean; subscriptionStatus?: Hospital["subscriptionStatus"]; enabledModules?: ModuleId[] }) {
+      if (currentUser.role !== "afio_admin") {
+        throw new Error("Only Business Admin can manage hospital subscriptions.");
+      }
+      if (mode === "supabase" && supabase) {
+        const client = supabase;
+        const hospital = data.hospitals.find((item) => item.id === hospitalId);
+        const updates: Record<string, unknown> = {};
+        if (typeof input.isActive === "boolean") updates.is_active = input.isActive;
+        if (input.subscriptionStatus) updates.subscription_status = input.subscriptionStatus;
+        if (Object.keys(updates).length) {
+          const { error } = await client.from("clinics").update(updates).eq("id", hospitalId);
+          if (error) throw new Error(error.message);
+        }
+        if (input.enabledModules) {
+          const currentModules = new Set(hospital?.enabledModules ?? []);
+          const nextModules = new Set(input.enabledModules);
+          const allModules: ModuleId[] = ["oct", "vkg", "corneal", "retina"];
+          await Promise.all(allModules.map(async (moduleId) => {
+            const shouldEnable = nextModules.has(moduleId);
+            if (currentModules.has(moduleId) || shouldEnable) {
+              const { error } = await client.from("clinic_modules").upsert({
+                clinic_id: hospitalId,
+                module_id: moduleId,
+                is_enabled: shouldEnable,
+                package_name: input.subscriptionStatus ?? hospital?.subscriptionStatus ?? "active"
+              }, { onConflict: "clinic_id,module_id" });
+              if (error) throw new Error(error.message);
+            }
+          }));
+        }
       }
       const hospitals = data.hospitals.map((hospital) =>
         hospital.id === hospitalId
