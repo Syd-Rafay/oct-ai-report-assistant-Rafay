@@ -21,7 +21,8 @@ import {
   Search,
   Trash2,
   Upload,
-  Wand2
+  Wand2,
+  ZoomIn
 } from "lucide-react";
 import { PageTitle } from "./app-shell";
 import { Button, Card, CardHeader, EmptyState, SafetyNotice, StatusBadge } from "./ui";
@@ -82,6 +83,132 @@ async function downloadImage(url: string, filename: string) {
   URL.revokeObjectURL(objectUrl);
 }
 
+function ImageInspectionModal({
+  scan,
+  patientCode,
+  onClose
+}: {
+  scan: Scan;
+  patientCode?: string;
+  onClose: () => void;
+}) {
+  const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [tiltX, setTiltX] = useState(0);
+  const [tiltY, setTiltY] = useState(0);
+  const [contrast, setContrast] = useState(100);
+  const [brightness, setBrightness] = useState(100);
+  const [showGrid, setShowGrid] = useState(true);
+  const [showCrosshair, setShowCrosshair] = useState(true);
+
+  const resetView = () => {
+    setZoom(1);
+    setRotation(0);
+    setTiltX(0);
+    setTiltY(0);
+    setContrast(100);
+    setBrightness(100);
+    setShowGrid(true);
+    setShowCrosshair(true);
+  };
+
+  const imageStyle = {
+    transform: `perspective(900px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) rotate(${rotation}deg) scale(${zoom})`,
+    filter: `contrast(${contrast}%) brightness(${brightness}%)`
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm">
+      <div className="grid max-h-[94vh] w-full max-w-6xl overflow-hidden rounded-lg border border-slate-700 bg-slate-950 shadow-2xl lg:grid-cols-[1fr_320px]">
+        <div className="flex min-h-[56vh] flex-col">
+          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Clinical Image Inspector</p>
+              <h3 className="text-lg font-black text-white">OCT scan review {patientCode ? `- ${patientCode}` : ""}</h3>
+            </div>
+            <Button variant="secondary" onClick={onClose}>Close</Button>
+          </div>
+          <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-slate-900 p-5">
+            {showGrid ? (
+              <div
+                className="pointer-events-none absolute inset-0 opacity-35"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(rgba(125,211,252,.24) 1px, transparent 1px), linear-gradient(90deg, rgba(125,211,252,.24) 1px, transparent 1px)",
+                  backgroundSize: "40px 40px"
+                }}
+              />
+            ) : null}
+            {showCrosshair ? (
+              <div className="pointer-events-none absolute inset-0">
+                <div className="absolute left-1/2 top-0 h-full w-px bg-cyan-300/45" />
+                <div className="absolute left-0 top-1/2 h-px w-full bg-cyan-300/45" />
+              </div>
+            ) : null}
+            <img
+              src={scan.imageUrl}
+              alt="Inspectable OCT scan"
+              className="max-h-[68vh] max-w-full rounded-md border border-slate-700 bg-black object-contain shadow-2xl transition-transform duration-150"
+              style={imageStyle}
+            />
+          </div>
+        </div>
+        <aside className="overflow-y-auto border-t border-slate-800 bg-white p-4 lg:border-l lg:border-t-0">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">View Controls</p>
+              <h4 className="font-black text-slate-950">CAD-style inspection</h4>
+            </div>
+            <Button variant="secondary" onClick={resetView}>
+              <RotateCcw size={16} />
+              Reset
+            </Button>
+          </div>
+          <div className="space-y-4">
+            <label className="block text-sm font-bold text-slate-700">
+              Zoom: {zoom.toFixed(1)}x
+              <input className="mt-2 w-full accent-clinic-600" type="range" min="0.5" max="4" step="0.1" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />
+            </label>
+            <label className="block text-sm font-bold text-slate-700">
+              Rotate: {rotation} deg
+              <input className="mt-2 w-full accent-clinic-600" type="range" min="-180" max="180" step="1" value={rotation} onChange={(event) => setRotation(Number(event.target.value))} />
+            </label>
+            <label className="block text-sm font-bold text-slate-700">
+              Tilt up/down: {tiltX} deg
+              <input className="mt-2 w-full accent-clinic-600" type="range" min="-55" max="55" step="1" value={tiltX} onChange={(event) => setTiltX(Number(event.target.value))} />
+            </label>
+            <label className="block text-sm font-bold text-slate-700">
+              Tilt left/right: {tiltY} deg
+              <input className="mt-2 w-full accent-clinic-600" type="range" min="-55" max="55" step="1" value={tiltY} onChange={(event) => setTiltY(Number(event.target.value))} />
+            </label>
+            <label className="block text-sm font-bold text-slate-700">
+              Contrast: {contrast}%
+              <input className="mt-2 w-full accent-clinic-600" type="range" min="60" max="180" step="5" value={contrast} onChange={(event) => setContrast(Number(event.target.value))} />
+            </label>
+            <label className="block text-sm font-bold text-slate-700">
+              Brightness: {brightness}%
+              <input className="mt-2 w-full accent-clinic-600" type="range" min="60" max="160" step="5" value={brightness} onChange={(event) => setBrightness(Number(event.target.value))} />
+            </label>
+            <div className="grid gap-2">
+              <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700">
+                <input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} />
+                Measurement grid
+              </label>
+              <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700">
+                <input type="checkbox" checked={showCrosshair} onChange={(event) => setShowCrosshair(event.target.checked)} />
+                Center crosshair
+              </label>
+            </div>
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+              This viewer changes display angle and image settings only. It does not reconstruct a true 3D scan from a 2D image.
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
 function ScanImageActions({
   scan,
   patientCode,
@@ -98,9 +225,15 @@ function ScanImageActions({
   busy?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const [inspecting, setInspecting] = useState(false);
 
   return (
     <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
+      {inspecting ? <ImageInspectionModal scan={scan} patientCode={patientCode} onClose={() => setInspecting(false)} /> : null}
+      <Button className="w-full sm:w-auto" variant="secondary" onClick={() => setInspecting(true)}>
+        <ZoomIn size={16} />
+        Inspect Image
+      </Button>
       <a href={scan.imageUrl} target="_blank" rel="noreferrer" className="block">
         <Button className="w-full sm:w-auto" variant="secondary">
           <Eye size={16} />
