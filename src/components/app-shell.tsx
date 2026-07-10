@@ -53,8 +53,10 @@ function EyeDepartmentLogo() {
           strokeLinejoin="round"
           strokeWidth="3"
         />
-        <circle cx="22" cy="22" r="7.4" fill="#ffffff" opacity="0.95" />
-        <circle cx="22" cy="22" r="4.2" fill="#0f172a" />
+        <circle cx="22" cy="22" r="7.6" fill="#ecfeff" opacity="0.98" />
+        <circle cx="22" cy="22" r="4.8" fill="#67e8f9" opacity="0.95" />
+        <circle cx="22" cy="22" r="2.2" fill="#0e7490" opacity="0.9" />
+        <circle cx="20.4" cy="20.2" r="1.1" fill="#ffffff" opacity="0.9" />
       </svg>
     </div>
   );
