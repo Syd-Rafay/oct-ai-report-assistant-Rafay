@@ -58,11 +58,14 @@ create table if not exists department_users (
   id uuid primary key default gen_random_uuid(),
   department_id uuid references departments(id) on delete cascade,
   user_id uuid references profiles(id) on delete cascade,
-  role text not null default 'staff' check (role in ('owner', 'admin', 'doctor', 'assistant', 'staff')),
+  role text not null default 'staff' check (role in ('owner', 'afio_admin', 'hospital_admin', 'admin', 'doctor', 'assistant', 'staff')),
   can_view_all boolean default false,
   created_at timestamptz default now(),
   unique (department_id, user_id)
 );
+
+alter table department_users drop constraint if exists department_users_role_check;
+alter table department_users add constraint department_users_role_check check (role in ('owner', 'afio_admin', 'hospital_admin', 'admin', 'doctor', 'assistant', 'staff'));
 
 create table if not exists module_api_keys (
   id uuid primary key default gen_random_uuid(),
@@ -229,13 +232,17 @@ alter table department_users enable row level security;
 alter table module_api_keys enable row level security;
 
 drop policy if exists "authenticated read clinics" on clinics;
+drop policy if exists "anon read signup clinics" on clinics;
 drop policy if exists "authenticated read departments" on departments;
+drop policy if exists "anon read enabled clinic modules" on clinic_modules;
 drop policy if exists "authenticated read clinic modules" on clinic_modules;
 drop policy if exists "authenticated read department users" on department_users;
 drop policy if exists "authenticated read module api keys" on module_api_keys;
 
+create policy "anon read signup clinics" on clinics for select to anon using (is_active = true and allow_self_signup = true and subscription_status <> 'suspended');
 create policy "authenticated read clinics" on clinics for select to authenticated using (true);
 create policy "authenticated read departments" on departments for select to authenticated using (true);
+create policy "anon read enabled clinic modules" on clinic_modules for select to anon using (is_enabled = true);
 create policy "authenticated read clinic modules" on clinic_modules for select to authenticated using (true);
 create policy "authenticated read department users" on department_users for select to authenticated using (true);
 create policy "authenticated read module api keys" on module_api_keys for select to authenticated using (true);

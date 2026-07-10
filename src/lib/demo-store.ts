@@ -224,6 +224,21 @@ type DbProfile = {
   is_active: boolean | null;
 };
 
+type DbHospital = {
+  id: string;
+  name: string;
+  code: string;
+  admin_email: string | null;
+  subscription_status: Hospital["subscriptionStatus"] | null;
+  is_active: boolean | null;
+  allow_self_signup: boolean | null;
+  created_at: string;
+  clinic_modules?: Array<{
+    module_id: ModuleId;
+    is_enabled: boolean | null;
+  }>;
+};
+
 type DbPatient = {
   id: string;
   patient_code: string;
@@ -411,6 +426,20 @@ function mapProfile(row: DbProfile): Profile {
   };
 }
 
+function mapHospital(row: DbHospital): Hospital {
+  return {
+    id: row.id,
+    name: row.name,
+    code: row.code,
+    adminEmail: row.admin_email ?? undefined,
+    subscriptionStatus: row.subscription_status ?? "trial",
+    isActive: row.is_active ?? true,
+    allowSelfSignup: row.allow_self_signup ?? true,
+    enabledModules: (row.clinic_modules ?? []).filter((module) => module.is_enabled ?? true).map((module) => module.module_id),
+    createdAt: row.created_at
+  };
+}
+
 function mapPatient(row: DbPatient): Patient {
   return {
     id: row.id,
@@ -573,6 +602,21 @@ async function insertAudit(userId: string | null, action: string, recordType: st
   });
 }
 
+async function loadHospitalsForSignup() {
+  if (!supabase) return demoHospitals;
+  const { data, error } = await supabase
+    .from("clinics")
+    .select("*, clinic_modules(module_id,is_enabled)")
+    .eq("is_active", true)
+    .eq("allow_self_signup", true)
+    .neq("subscription_status", "suspended")
+    .order("name", { ascending: true });
+
+  if (error) return demoHospitals;
+  const hospitals = ((data ?? []) as DbHospital[]).map(mapHospital);
+  return hospitals.length ? hospitals : demoHospitals;
+}
+
 export function useDemoStore() {
   const [data, setData] = useState<AppData>(emptyData);
   const [ready, setReady] = useState(false);
@@ -598,6 +642,7 @@ export function useDemoStore() {
     if (!supabase) return;
 
     const [
+      hospitalsResult,
       profilesResult,
       patientsResult,
       scansResult,
@@ -605,6 +650,7 @@ export function useDemoStore() {
       reportsResult,
       auditLogsResult
     ] = await Promise.all([
+      supabase.from("clinics").select("*, clinic_modules(module_id,is_enabled)").order("name", { ascending: true }),
       supabase.from("profiles").select("*").order("created_at", { ascending: false }),
       supabase.from("patients").select("*").order("created_at", { ascending: false }),
       supabase.from("scans").select("*").order("created_at", { ascending: false }),
@@ -614,6 +660,7 @@ export function useDemoStore() {
     ]);
 
     const firstError =
+      hospitalsResult.error ??
       profilesResult.error ??
       patientsResult.error ??
       scansResult.error ??
@@ -630,7 +677,7 @@ export function useDemoStore() {
 
     setData({
       currentUserId: user.id,
-      hospitals: demoHospitals,
+      hospitals: ((hospitalsResult.data ?? []) as DbHospital[]).map(mapHospital),
       profiles,
       patients: ((patientsResult.data ?? []) as DbPatient[]).map(mapPatient),
       scans: ((scansResult.data ?? []) as DbScan[]).map(mapScan),
@@ -655,7 +702,7 @@ export function useDemoStore() {
 
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user || cancelled) {
-        setData(emptyData);
+        setData({ ...emptyData, hospitals: await loadHospitalsForSignup() });
         setMode("supabase");
         setReady(true);
         return;
