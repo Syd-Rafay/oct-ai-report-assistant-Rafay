@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { getReportTemplates, reportTemplates, safetyDisclaimer } from "./report-templates";
 import { supabase } from "./supabase";
-import { isDiseaseClass } from "./types";
+import { isClinicalClass } from "./types";
 import type {
   AiResult,
   AppData,
   AuditLog,
   BackendPrediction,
+  ClinicalClass,
   DiseaseClass,
   EyeSide,
   Hospital,
@@ -279,9 +280,9 @@ type DbScan = {
 type DbAiResult = {
   id: string;
   scan_id: string;
-  predicted_class: DiseaseClass;
+  predicted_class: ClinicalClass;
   confidence: number;
-  probabilities: Record<DiseaseClass, number>;
+  probabilities: Partial<Record<ClinicalClass, number>>;
   model_name: string | null;
   model_version: string | null;
   heatmap_url: string | null;
@@ -361,17 +362,16 @@ function audit(data: AppData, action: string, recordType: string, recordId: stri
   return { ...data, auditLogs: [entry, ...data.auditLogs] };
 }
 
-function normalizeProbabilities(prediction: DiseaseClass) {
+function normalizeProbabilities(prediction: ClinicalClass) {
   const confidence = Number((0.79 + Math.random() * 0.14).toFixed(2));
-  const probabilities = {} as Record<DiseaseClass, number>;
-  const others = ["CNV", "DME", "DRUSEN", "NORMAL"].filter((key) => key !== prediction) as DiseaseClass[];
-  const first = Number(((1 - confidence) * 0.42).toFixed(2));
-  const second = Number(((1 - confidence) * 0.35).toFixed(2));
-  const third = Number((1 - confidence - first - second).toFixed(2));
+  const probabilities = {} as Partial<Record<ClinicalClass, number>>;
+  const classes: ClinicalClass[] = prediction === "KCN" || prediction === "SUSPECT" ? ["NORMAL", "KCN", "SUSPECT"] : ["CNV", "DME", "DRUSEN", "NORMAL"];
+  const others = classes.filter((key) => key !== prediction);
   probabilities[prediction] = confidence;
-  probabilities[others[0]] = first;
-  probabilities[others[1]] = second;
-  probabilities[others[2]] = third;
+  const remaining = 1 - confidence;
+  others.forEach((item, index) => {
+    probabilities[item] = Number((remaining / others.length + (index === 0 ? 0.01 : 0)).toFixed(2));
+  });
   return probabilities;
 }
 
@@ -1001,11 +1001,12 @@ export function useDemoStore() {
         auditLogs: data.auditLogs.filter((log) => !patientReportIds.includes(log.recordId))
       }, "Patient deleted", "patient", patientId, "Patient and linked records removed"));
     },
-    async addScan(input: { patientId: string; imageUrl: string; eyeSide: EyeSide; scanNotes?: string; file?: File }) {
+    async addScan(input: { patientId: string; imageUrl: string; eyeSide: EyeSide; scanNotes?: string; file?: File; moduleId?: ModuleId }) {
       const patient = data.patients.find((item) => item.id === input.patientId);
+      const moduleId: ModuleId = input.moduleId ?? "oct";
+      const scanType = moduleId === "vkg" ? "VKG" : "OCT";
       if (mode === "supabase" && supabase && input.file) {
         const extension = input.file.name.split(".").pop()?.toLowerCase() || "jpg";
-        const moduleId: ModuleId = "oct";
         const storagePath = `${scanStoragePrefix(patient?.clinicId ?? currentUser.clinicId, moduleId, input.patientId)}/${crypto.randomUUID()}.${extension}`;
         const upload = await supabase.storage.from("oct-scans").upload(storagePath, input.file, {
           contentType: input.file.type,
@@ -1020,7 +1021,7 @@ export function useDemoStore() {
             patient_id: input.patientId,
             image_url: publicUrl.publicUrl,
             storage_path: storagePath,
-            scan_type: "OCT",
+            scan_type: scanType,
             clinic_id: patient?.clinicId ?? currentUser.clinicId ?? null,
             department_id: patient?.departmentId ?? currentUser.defaultDepartmentId ?? null,
             module_id: moduleId,
@@ -1042,11 +1043,11 @@ export function useDemoStore() {
         id: id("scan"),
         patientId: input.patientId,
         imageUrl: input.imageUrl,
-        storagePath: `oct-scans/${input.patientId}/${Date.now()}.jpg`,
-        scanType: "OCT",
+        storagePath: `${moduleId}-scans/${input.patientId}/${Date.now()}.jpg`,
+        scanType,
         clinicId: patient?.clinicId ?? currentUser.clinicId,
         departmentId: patient?.departmentId ?? currentUser.defaultDepartmentId,
-        moduleId: "oct",
+        moduleId,
         eyeSide: input.eyeSide,
         scanNotes: input.scanNotes,
         uploadedBy: currentUser.id,
@@ -1169,14 +1170,14 @@ export function useDemoStore() {
       }, "Scan deleted", "scan", scanId, "Scan, linked analysis, and reports removed"));
     },
     runAnalysis(scan: Scan) {
-      const classes: DiseaseClass[] = ["CNV", "DME", "DRUSEN", "NORMAL"];
+      const classes: ClinicalClass[] = scan.moduleId === "vkg" ? ["NORMAL", "KCN", "SUSPECT"] : ["CNV", "DME", "DRUSEN", "NORMAL"];
       const predictedClass = classes[Math.floor(Math.random() * classes.length)];
       const probabilities = normalizeProbabilities(predictedClass);
       const aiResult: AiResult = {
         id: id("ai"),
         scanId: scan.id,
         predictedClass,
-        confidence: probabilities[predictedClass],
+        confidence: probabilities[predictedClass] ?? 0,
         probabilities,
         modelName: "EfficientNet-B0",
         modelVersion: "demo-v1.0",
@@ -1194,10 +1195,10 @@ export function useDemoStore() {
       return aiResult;
     },
     async saveBackendAnalysis(scan: Scan, prediction: BackendPrediction) {
-      if (!prediction.is_valid_oct || !isDiseaseClass(prediction.prediction)) {
+      if (!prediction.is_valid_oct || !isClinicalClass(prediction.prediction)) {
         throw new Error(prediction.disclaimer);
       }
-      const probabilities = prediction.probabilities as Record<DiseaseClass, number>;
+      const probabilities = prediction.probabilities as Partial<Record<ClinicalClass, number>>;
 
       if (mode === "supabase" && supabase) {
         const patient = data.patients.find((item) => item.id === scan.patientId);
@@ -1281,7 +1282,7 @@ export function useDemoStore() {
       if (existing) return existing;
 
       if (mode === "supabase" && supabase) {
-        const template = (await getReportTemplates())[aiResult.predictedClass];
+        const template = (await getReportTemplates(scan.moduleId ?? aiResult.moduleId ?? "oct"))[aiResult.predictedClass];
         const { data: row, error } = await supabase
           .from("reports")
           .insert({
@@ -1317,7 +1318,7 @@ export function useDemoStore() {
         clinicId: scan.clinicId ?? patient?.clinicId ?? currentUser.clinicId,
         departmentId: scan.departmentId ?? patient?.departmentId ?? currentUser.defaultDepartmentId,
         moduleId: scan.moduleId ?? aiResult.moduleId ?? "oct",
-        ...(await getReportTemplates())[aiResult.predictedClass],
+        ...(await getReportTemplates(scan.moduleId ?? aiResult.moduleId ?? "oct"))[aiResult.predictedClass],
         doctorNotes: patient?.clinicalNotes ?? "",
         finalDiagnosis: "Needs clinical correlation",
         status: "draft",

@@ -32,7 +32,7 @@ export const clinicalModules: ClinicalModule[] = [
     department: "VKG Department",
     shortName: "VKG",
     status: "training",
-    description: "Corneal topography/VKG keratoconus screening model being trained for Group 1 demo access.",
+    description: "Corneal topography/VKG keratoconus screening workflow with separate patients, scans, templates, and reports.",
     route: "/modules/vkg",
     accent: "bg-emerald-50 text-emerald-800 ring-emerald-200",
     icon: Activity
@@ -43,7 +43,7 @@ export const clinicalModules: ClinicalModule[] = [
     department: "Corneal Department",
     shortName: "Corneal",
     status: "training",
-    description: "Group 2 keratoconus/corneal screening module, sold separately from OCT/VKG.",
+    description: "Keratoconus/corneal screening module, sold separately from OCT/VKG.",
     accent: "bg-amber-50 text-amber-800 ring-amber-200",
     icon: Layers3
   },
@@ -53,7 +53,7 @@ export const clinicalModules: ClinicalModule[] = [
     department: "Retina Department",
     shortName: "Retina",
     status: "awaiting_model",
-    description: "Group 3 retinal fundus module for DR/glaucoma-style reports once their model/API is available.",
+    description: "Retinal fundus module for DR/glaucoma-style reports once its model/API is available.",
     accent: "bg-violet-50 text-violet-800 ring-violet-200",
     icon: Eye
   }

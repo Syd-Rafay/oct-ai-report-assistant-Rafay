@@ -4,7 +4,9 @@ export type Gender = "Female" | "Male" | "Other";
 export type EyeSide = "Left" | "Right" | "Both" | "Unknown";
 export type ModuleId = "oct" | "vkg" | "corneal" | "retina";
 export type DiseaseClass = "CNV" | "DME" | "DRUSEN" | "NORMAL";
-export type PredictionClass = DiseaseClass | "INVALID_IMAGE" | "INVALID_OR_UNCERTAIN_IMAGE";
+export type VkgClass = "NORMAL" | "KCN" | "SUSPECT";
+export type ClinicalClass = DiseaseClass | VkgClass;
+export type PredictionClass = ClinicalClass | "INVALID_IMAGE" | "INVALID_OR_UNCERTAIN_IMAGE";
 export type ReportStatus = "draft" | "pending_review" | "approved" | "rejected" | "superseded";
 
 export type Profile = {
@@ -72,9 +74,9 @@ export type Scan = {
 export type AiResult = {
   id: string;
   scanId: string;
-  predictedClass: DiseaseClass;
+  predictedClass: ClinicalClass;
   confidence: number;
-  probabilities: Record<DiseaseClass, number>;
+  probabilities: Partial<Record<ClinicalClass, number>>;
   modelName: string;
   modelVersion: string;
   heatmapUrl?: string;
@@ -86,7 +88,7 @@ export type AiResult = {
 export type BackendPrediction = {
   prediction: PredictionClass;
   confidence: number;
-  probabilities: Partial<Record<DiseaseClass, number>>;
+  probabilities: Partial<Record<ClinicalClass, number>>;
   model_name: string;
   model_version: string;
   is_valid_oct?: boolean;
@@ -101,6 +103,10 @@ export function isDiseaseClass(value: PredictionClass): value is DiseaseClass {
   return value === "CNV" || value === "DME" || value === "DRUSEN" || value === "NORMAL";
 }
 
+export function isClinicalClass(value: PredictionClass): value is ClinicalClass {
+  return value === "CNV" || value === "DME" || value === "DRUSEN" || value === "NORMAL" || value === "KCN" || value === "SUSPECT";
+}
+
 export type Report = {
   id: string;
   patientId: string;
@@ -110,7 +116,7 @@ export type Report = {
   impression: string;
   recommendation: string;
   doctorNotes: string;
-  finalDiagnosis: DiseaseClass | "Needs clinical correlation";
+  finalDiagnosis: ClinicalClass | "Needs clinical correlation";
   clinicId?: string;
   departmentId?: string;
   moduleId?: ModuleId;

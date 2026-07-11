@@ -15,7 +15,6 @@ import {
   LogOut,
   ShieldCheck,
   ScanEye,
-  Search,
   UserCog,
   Activity,
   Eye,
@@ -48,28 +47,28 @@ const moduleNavItems = {
 const moduleTreeItems = {
   oct: [
     { href: "/modules/oct", label: "Overview", icon: LayoutDashboard },
-    { href: "/patients/search", label: "Patients", icon: Users },
-    { href: "/patients/new", label: "New Patient", icon: UserCog },
-    { href: "/scans/upload", label: "Upload Scan", icon: Upload },
-    { href: "/reports/history", label: "Reports", icon: FileText }
+    { href: "/patients/search?module=oct", label: "Patients", icon: Users },
+    { href: "/patients/new?module=oct", label: "New Patient", icon: UserCog },
+    { href: "/scans/upload?module=oct", label: "Upload Scan", icon: Upload },
+    { href: "/reports/history?module=oct", label: "Reports", icon: FileText },
+    { href: "/admin/templates?module=oct", label: "Templates", icon: ClipboardList }
   ],
   vkg: [
     { href: "/modules/vkg", label: "Overview", icon: LayoutDashboard },
-    { href: "/modules/vkg", label: "Patients", icon: Users },
-    { href: "/modules/vkg", label: "Tests", icon: Activity },
-    { href: "/modules/vkg", label: "Reports", icon: FileText }
+    { href: "/patients/search?module=vkg", label: "Patients", icon: Users },
+    { href: "/patients/new?module=vkg", label: "New Patient", icon: UserCog },
+    { href: "/scans/upload?module=vkg", label: "Upload Scan", icon: Upload },
+    { href: "/reports/history?module=vkg", label: "Reports", icon: FileText },
+    { href: "/admin/templates?module=vkg", label: "Templates", icon: ClipboardList }
   ],
   corneal: [{ href: "/modules/corneal", label: "Overview", icon: LayoutDashboard }],
   retina: [{ href: "/modules/retina", label: "Overview", icon: LayoutDashboard }]
 };
 
-const doctorItems = [
-  { href: "/admin/templates", label: "Templates", icon: ClipboardList }
-];
+const doctorItems: Array<{ href: string; label: string; icon: React.ComponentType<{ size?: number }> }> = [];
 
 const adminItems = [
   { href: "/admin/users", label: "Admin Users", icon: UserCog },
-  { href: "/admin/templates", label: "Templates", icon: ClipboardList },
   { href: "/admin/feedback", label: "Feedback Inbox", icon: Inbox },
   { href: "/admin/audit-logs", label: "Login & Audit History", icon: ShieldCheck }
 ];
@@ -182,7 +181,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 const Icon = item.icon;
                 const children = moduleTreeItems[moduleId] ?? [];
                 const isOpen = expandedModules[moduleId];
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`) || children.some((child) => pathname === child.href || pathname.startsWith(`${child.href}/`));
+                const active = pathname === item.href || pathname.startsWith(`${item.href}/`) || children.some((child) => {
+                  const childPath = child.href.split("?")[0];
+                  return pathname === childPath || pathname.startsWith(`${childPath}/`);
+                });
                 return (
                   <div key={item.href}>
                     <div className={clsx("flex items-center rounded-md transition", active ? "bg-clinic-50 text-clinic-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950")}>
@@ -270,7 +272,8 @@ function NavLinkItem({
   nested?: boolean;
 }) {
   const Icon = item.icon;
-  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const itemPath = item.href.split("?")[0];
+  const active = pathname === itemPath || pathname.startsWith(`${itemPath}/`);
   return (
     <Link
       href={item.href}

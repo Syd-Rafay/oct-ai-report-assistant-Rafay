@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -26,17 +26,18 @@ import {
 } from "lucide-react";
 import { PageTitle } from "./app-shell";
 import { Button, Card, CardHeader, EmptyState, SafetyNotice, StatusBadge } from "./ui";
-import { predictOCTWithGradcam } from "@/lib/ai-api";
+import { predictOCTWithGradcam, predictVKG } from "@/lib/ai-api";
 import { useDemoStore } from "@/lib/demo-store";
 import { addFeedbackResponse, getCachedFeedbackEntries, getFeedbackEntries, submitFeedback, updateFeedbackStatus } from "@/lib/feedback";
 import { prepareScanImages } from "@/lib/image-processing";
 import { getModulesByIds } from "@/lib/modules";
 import { downloadPublicReportPdf, downloadReportPdf } from "@/lib/pdf";
 import { changePatientAccessPassword, checkPublicReport, getPatientAccessId, getPatientCurrentAccessPassword, sendFeedbackEmail, sendReportAccessEmail, type PublicReport, type PublicReportResult } from "@/lib/report-access";
-import { getReportTemplates, reportTemplates, saveReportTemplates } from "@/lib/report-templates";
-import type { DiseaseClass, EyeSide, FeedbackEntry, Gender, ModuleId, Patient, Report, Role, Scan } from "@/lib/types";
+import { getReportTemplates, reportClassesForModule, reportTemplates, saveReportTemplates } from "@/lib/report-templates";
+import type { ClinicalClass, DiseaseClass, EyeSide, FeedbackEntry, Gender, ModuleId, Patient, Report, Role, Scan } from "@/lib/types";
 
 const diseaseClasses: DiseaseClass[] = ["CNV", "DME", "DRUSEN", "NORMAL"];
+const vkgClasses: ClinicalClass[] = ["NORMAL", "KCN", "SUSPECT"];
 
 const MIN_PATIENT_AGE = 0;
 const MAX_PATIENT_AGE = 130;
@@ -538,7 +539,7 @@ export function DashboardView() {
       id: "oct",
       enabled: visibleModuleIds.has("oct"),
       title: "OCT",
-      owner: "Group 1",
+      owner: "OCT SERVICE",
       route: "/modules/oct",
       status: "Live",
       summary: "OCT patients, upload/test workflow, EfficientNet analysis, Grad-CAM when enabled, doctor review, and approved reports."
@@ -547,16 +548,16 @@ export function DashboardView() {
       id: "vkg",
       enabled: visibleModuleIds.has("vkg"),
       title: "VKG",
-      owner: "Group 1 / Group 2",
+      owner: "VKG SERVICE",
       route: "/modules/vkg",
-      status: "Workflow shell",
-      summary: "VKG/topography patients and reports live separately from OCT. Group 2 detection can connect here when ready."
+      status: "Live",
+      summary: "VKG/topography patients, screening workflow, AI result capture, module templates, and separate report history."
     },
     {
       id: "corneal",
       enabled: visibleModuleIds.has("corneal"),
       title: "Corneal / VKG Detection",
-      owner: "Group 2",
+      owner: "CORNEAL SERVICE",
       route: "/modules/corneal",
       status: "Model ready",
       summary: "Keratoconus/corneal screening engine exposed as a separate API and report result module.",
@@ -566,11 +567,11 @@ export function DashboardView() {
       id: "retina",
       enabled: visibleModuleIds.has("retina"),
       title: "Retinal Fundus Screening",
-      owner: "Group 3",
+      owner: "RETINA SERVICE",
       route: "/modules/retina",
       status: "Awaiting API",
       summary: "Retinal/fundus disease screening module for DR, glaucoma-style findings, and report output.",
-      accessHint: "Enable after Group 3 provides their model/API."
+      accessHint: "Enable after the retina model/API is available."
     }
   ];
   const visibleModules = store.currentUser.role === "afio_admin" ? platformModules : platformModules.filter((module) => module.enabled);
@@ -685,15 +686,6 @@ export function OctModuleView() {
     ["Reports today", todayReports],
     ["Hospital feedback", feedbackCount]
   ];
-  const actions = [
-    { title: "Patients", body: "Register, search, edit, and open OCT patient records.", href: "/patients/search", icon: Search },
-    { title: "New Patient", body: "Create a patient before uploading an OCT test.", href: "/patients/new", icon: Plus },
-    { title: "OCT Test", body: "Upload OCT image, run model analysis, and save the scan.", href: "/scans/upload", icon: Upload },
-    { title: "Reports", body: "Review drafts, approve reports, and download PDFs.", href: "/reports/history", icon: ClipboardCheck },
-    { title: "Templates", body: "Edit OCT report templates used after classification.", href: "/admin/templates", icon: FileText },
-    { title: "Feedback", body: "Review complaints and feedback for this hospital.", href: "/admin/feedback", icon: Inbox }
-  ];
-
   return (
     <>
       <PageTitle
@@ -723,22 +715,6 @@ export function OctModuleView() {
         }
       />
       <SafetyNotice />
-      <div className="mt-5 grid gap-4 md:grid-cols-3">
-        {actions.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Link key={item.title} href={item.href} className="block">
-              <Card className="h-full p-5 transition hover:-translate-y-0.5 hover:shadow-panel">
-                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-clinic-50 text-clinic-700 ring-1 ring-clinic-100">
-                  <Icon size={20} />
-                </div>
-                <h3 className="mt-4 text-lg font-black text-slate-950">{item.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{item.body}</p>
-              </Card>
-            </Link>
-          );
-        })}
-      </div>
       <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {stats.map(([label, value]) => (
           <Card key={label} className="p-5">
@@ -778,33 +754,68 @@ export function VkgModuleView() {
   const vkgReports = store.data.reports.filter((report) => report.moduleId === "vkg");
   const vkgPatientIds = new Set(vkgScans.map((scan) => scan.patientId));
   const vkgPatients = store.data.patients.filter((patient) => vkgPatientIds.has(patient.id));
+  const pending = vkgReports.filter((report) => report.status !== "approved").length;
+  const approved = vkgReports.filter((report) => report.status === "approved").length;
+  const today = new Date().toISOString().slice(0, 10);
+  const todayReports = vkgReports.filter((report) => report.createdAt.startsWith(today)).length;
+  const stats = [
+    ["VKG patients", vkgPatients.length],
+    ["VKG tests", vkgScans.length],
+    ["Pending reports", pending],
+    ["Approved reports", approved],
+    ["Reports today", todayReports]
+  ];
   return (
     <>
       <PageTitle
         title="VKG"
-        subtitle="Separate VKG/topography workspace. Group 2 detection can connect here later without mixing OCT patients or reports."
+        subtitle="VKG/topography screening workflow with separate patients, scans, AI results, report templates, and reports."
+        action={
+          <div className="grid gap-2 sm:flex">
+            <Link href="/patients/new?module=vkg" className="block">
+              <Button className="w-full">
+                <Plus size={16} />
+                New Patient
+              </Button>
+            </Link>
+            <Link href="/scans/upload?module=vkg" className="block">
+              <Button className="w-full" variant="secondary">
+                <Upload size={16} />
+                Upload VKG
+              </Button>
+            </Link>
+            <Link href="/reports/history?module=vkg" className="block">
+              <Button className="w-full" variant="secondary">
+                <ClipboardCheck size={16} />
+                Reports
+              </Button>
+            </Link>
+          </div>
+        }
       />
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="p-5">
-          <p className="text-sm font-semibold text-slate-500">VKG patients</p>
-          <p className="mt-2 text-3xl font-black text-slate-950">{vkgPatients.length}</p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-sm font-semibold text-slate-500">VKG tests</p>
-          <p className="mt-2 text-3xl font-black text-slate-950">{vkgScans.length}</p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-sm font-semibold text-slate-500">VKG reports</p>
-          <p className="mt-2 text-3xl font-black text-slate-950">{vkgReports.length}</p>
-        </Card>
+      <SafetyNotice />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {stats.map(([label, value]) => (
+          <Card key={label} className="p-5">
+            <p className="text-sm font-semibold text-slate-500">{label}</p>
+            <p className="mt-2 text-3xl font-black text-slate-950">{value}</p>
+          </Card>
+        ))}
       </div>
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
-        <Card className="p-5">
-          <CardHeader title="VKG workflow" subtitle="Same shape as OCT, with VKG-specific test and report logic added when the model/API is ready." />
-          <div className="grid gap-3 sm:grid-cols-2">
-            {["Patients", "Tests", "Reports", "Templates"].map((item) => (
-              <div key={item} className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm font-black text-slate-700">{item}</div>
+        <Card>
+          <CardHeader title="Recent VKG Patients" subtitle="Open a patient profile to view VKG tests and reports." />
+          <div className="divide-y divide-slate-100">
+            {vkgPatients.slice(0, 5).map((patient) => (
+              <Link key={patient.id} href={`/patients/${patient.id}`} className="flex items-center justify-between px-5 py-4 hover:bg-slate-50">
+                <div>
+                  <p className="font-bold text-slate-900">{patient.fullName}</p>
+                  <p className="text-sm text-slate-500">{patient.patientCode}</p>
+                </div>
+                <p className="text-sm font-semibold text-clinic-700">Open</p>
+              </Link>
             ))}
+            {vkgPatients.length === 0 ? <EmptyState title="No VKG patients yet" body="Create a patient or upload the first VKG/topography scan." /> : null}
           </div>
         </Card>
         <Card>
@@ -1393,7 +1404,10 @@ export function PatientProfileView({ id }: { id: string }) {
 
 export function UploadScanView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const store = useDemoStore();
+  const moduleId = (searchParams.get("module") === "vkg" ? "vkg" : "oct") as ModuleId;
+  const moduleLabel = moduleId === "vkg" ? "VKG" : "OCT";
   const [patientId, setPatientId] = useState("");
   const [eyeSide, setEyeSide] = useState<EyeSide>("Unknown");
   const [scanNotes, setScanNotes] = useState("");
@@ -1408,7 +1422,7 @@ export function UploadScanView() {
   const onFile = async (file?: File) => {
     if (!file) return;
     if (!["image/jpeg", "image/png"].includes(file.type)) {
-      setError("Only JPG, JPEG, and PNG OCT images are supported.");
+      setError(`Only JPG, JPEG, and PNG ${moduleLabel} images are supported.`);
       return;
     }
     setError("");
@@ -1438,22 +1452,22 @@ export function UploadScanView() {
     setError("");
     setAnalysisWarning("");
     if (!patientId || !imageUrl || !selectedFile || !predictionFile) {
-      setError("Please select a patient and upload an OCT image.");
+      setError(`Please select a patient and upload a ${moduleLabel} image.`);
       return;
     }
     setLoading(true);
     try {
-      const prediction = await predictOCTWithGradcam(predictionFile);
+      const prediction = moduleId === "vkg" ? await predictVKG(predictionFile) : await predictOCTWithGradcam(predictionFile);
       if (!prediction.is_valid_oct) {
         const message =
           prediction.prediction === "INVALID_IMAGE"
-            ? "Invalid image uploaded. Please upload a valid OCT scan."
+            ? `Invalid image uploaded. Please upload a valid ${moduleLabel} scan.`
             : "Low-confidence result. AI could not confidently classify this scan. Requires doctor review.";
         setAnalysisWarning(`${message} ${prediction.disclaimer}`);
         return;
       }
 
-      const scan = await store.addScan({ patientId, imageUrl, eyeSide, scanNotes, file: selectedFile });
+      const scan = await store.addScan({ patientId, imageUrl, eyeSide, scanNotes, file: selectedFile, moduleId });
       const aiResult = await store.saveBackendAnalysis(scan, prediction);
       await store.createReport(scan, aiResult);
       router.push(`/scans/${scan.id}/analysis`);
@@ -1466,7 +1480,7 @@ export function UploadScanView() {
 
   return (
     <>
-      <PageTitle title="Upload OCT Scan" subtitle="Upload a patient OCT image for AI-assisted classification and draft report preparation." />
+      <PageTitle title={`Upload ${moduleLabel} Scan`} subtitle={`Upload a patient ${moduleLabel} image for AI-assisted screening and draft report preparation.`} />
       <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
         <Card className="p-5">
           <div className="grid gap-4 md:grid-cols-2">
@@ -1482,7 +1496,7 @@ export function UploadScanView() {
           <Textarea label="Scan notes" value={scanNotes} onChange={setScanNotes} />
           <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center hover:border-clinic-300">
             <Upload className="text-clinic-600" size={28} />
-            <span className="mt-3 font-bold text-slate-900">Upload OCT image</span>
+            <span className="mt-3 font-bold text-slate-900">Upload {moduleLabel} image</span>
             <span className="text-sm text-slate-500">JPG, JPEG, or PNG</span>
             <input className="hidden" type="file" accept=".jpg,.jpeg,.png" onChange={(event) => onFile(event.target.files?.[0])} />
           </label>
@@ -1492,7 +1506,7 @@ export function UploadScanView() {
           <div className="mt-5 flex justify-end">
             <Button className="w-full sm:w-auto" onClick={submit} disabled={loading}>
               {loading ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />}
-              {loading ? "Analyzing with EfficientNet-B3..." : "Save and Analyze"}
+              {loading ? `Analyzing ${moduleLabel} image...` : "Save and Analyze"}
             </Button>
           </div>
         </Card>
@@ -1524,6 +1538,7 @@ export function AnalysisView({ id }: { id: string }) {
   const linkedReport = aiResult ? store.data.reports.find((report) => report.aiResultId === aiResult.id) : undefined;
   const canManageAnalysis = store.currentUser.role === "doctor" || store.currentUser.role === "hospital_admin" || store.currentUser.role === "admin";
   const canManageScan = canManageAnalysis;
+  const analysisClasses = scan.moduleId === "vkg" ? vkgClasses : diseaseClasses;
 
   const analyzeScan = async () => {
     setAnalysisError("");
@@ -1632,8 +1647,8 @@ export function AnalysisView({ id }: { id: string }) {
                 <p className="mt-1 text-sm text-slate-500">Confidence {Math.round(aiResult.confidence * 100)}%</p>
               </div>
               <div className="space-y-3">
-                {diseaseClasses.map((item) => (
-                  <Probability key={item} label={item} value={aiResult.probabilities[item]} active={item === aiResult.predictedClass} />
+                {analysisClasses.map((item) => (
+                  <Probability key={item} label={item} value={aiResult.probabilities[item] ?? 0} active={item === aiResult.predictedClass} />
                 ))}
               </div>
               {aiResult.heatmapUrl ? (
@@ -1644,14 +1659,7 @@ export function AnalysisView({ id }: { id: string }) {
                     Highlighted regions influenced the AI classification. This is not a segmentation map or measurement.
                   </p>
                 </div>
-              ) : (
-                <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
-                  <p className="text-sm font-black text-amber-950">Grad-CAM not returned</p>
-                  <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-800">
-                    The app called the Grad-CAM analysis endpoint. If no overlay appears, the live Render backend is still returning the standard prediction response or the scan was analyzed before Grad-CAM storage was enabled. Re-run analysis after the backend redeploy finishes.
-                  </p>
-                </div>
-              )}
+              ) : null}
               <Info label="Model" value={`${aiResult.modelName} ${aiResult.modelVersion}`} />
               <Info label="Timestamp" value={new Date(aiResult.createdAt).toLocaleString()} />
               <div className="grid gap-2 sm:flex">
@@ -2025,8 +2033,11 @@ export function ReportView({ id }: { id: string }) {
 
 export function ReportHistoryView() {
   const store = useDemoStore();
+  const searchParams = useSearchParams();
+  const moduleId = (searchParams.get("module") === "vkg" ? "vkg" : "oct") as ModuleId;
+  const moduleLabel = moduleId === "vkg" ? "VKG" : "OCT";
   const [query, setQuery] = useState("");
-  const reports = store.data.reports.filter((report) => {
+  const reports = store.data.reports.filter((report) => (report.moduleId ?? "oct") === moduleId).filter((report) => {
     const patient = store.data.patients.find((item) => item.id === report.patientId);
     const ai = store.data.aiResults.find((item) => item.id === report.aiResultId);
     return `${patient?.patientCode} ${patient?.cnic ?? ""} ${patient?.fullName} ${report.status} ${ai?.predictedClass} ${report.finalDiagnosis}`
@@ -2035,7 +2046,7 @@ export function ReportHistoryView() {
   });
   return (
     <>
-      <PageTitle title="Report History" subtitle="Search by patient ID, CNIC, name, status, AI prediction, or final diagnosis." />
+      <PageTitle title={`${moduleLabel} Report History`} subtitle={`Search ${moduleLabel} reports by patient ID, CNIC, name, status, AI prediction, or final diagnosis.`} />
       <Card className="p-5">
         <input className="field" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search CNIC, name, status, or diagnosis..." />
       </Card>
@@ -2678,13 +2689,17 @@ export function AdminUsersView() {
 
 export function TemplatesView() {
   const store = useDemoStore();
+  const searchParams = useSearchParams();
+  const moduleId = (searchParams.get("module") === "vkg" ? "vkg" : "oct") as ModuleId;
+  const moduleLabel = moduleId === "vkg" ? "VKG" : "OCT";
+  const moduleClasses = reportClassesForModule(moduleId);
   const canEditTemplates = store.currentUser.role === "hospital_admin" || store.currentUser.role === "admin" || store.currentUser.role === "doctor";
   const [templates, setTemplates] = useState(reportTemplates);
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [medicine, setMedicine] = useState({
-    template: "DME" as DiseaseClass,
+    template: (moduleId === "vkg" ? "KCN" : "DME") as ClinicalClass,
     name: "",
     dose: "",
     route: "Oral",
@@ -2693,7 +2708,7 @@ export function TemplatesView() {
     instructions: ""
   });
 
-  const updateTemplate = (disease: DiseaseClass, field: "findings" | "impression" | "recommendation", value: string) => {
+  const updateTemplate = (disease: ClinicalClass, field: "findings" | "impression" | "recommendation", value: string) => {
     setTemplates((current) => ({
       ...current,
       [disease]: {
@@ -2706,7 +2721,7 @@ export function TemplatesView() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getReportTemplates()
+    getReportTemplates(moduleId)
       .then((loadedTemplates) => {
         if (!cancelled) setTemplates(loadedTemplates);
       })
@@ -2719,13 +2734,13 @@ export function TemplatesView() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [moduleId]);
 
   const saveTemplates = async () => {
     setSaving(true);
     try {
-      await saveReportTemplates(templates);
-      setSaved("Default report templates saved to Supabase.");
+      await saveReportTemplates(templates, moduleId);
+      setSaved(`${moduleLabel} report templates saved to Supabase.`);
     } catch (err) {
       setSaved(err instanceof Error ? err.message : "Could not save templates to Supabase.");
     } finally {
@@ -2739,8 +2754,8 @@ export function TemplatesView() {
     setTemplates(reportTemplates);
     setSaving(true);
     try {
-      await saveReportTemplates(reportTemplates);
-      setSaved("Templates reset to defaults in Supabase.");
+      await saveReportTemplates(reportTemplates, moduleId);
+      setSaved(`${moduleLabel} templates reset to defaults in Supabase.`);
     } catch (err) {
       setSaved(err instanceof Error ? err.message : "Could not reset templates in Supabase.");
     } finally {
@@ -2778,8 +2793,8 @@ export function TemplatesView() {
   return (
     <>
       <PageTitle
-        title="Report Templates"
-        subtitle="Edit the default draft text doctors receive when AI-generated reports are created."
+        title={`${moduleLabel} Report Templates`}
+        subtitle={`Edit the default ${moduleLabel} draft text doctors receive when AI-generated reports are created.`}
         action={
           <div className="grid gap-2 sm:flex">
             <Button className="w-full sm:w-auto" variant="secondary" onClick={resetTemplates} disabled={saving}>Reset Defaults</Button>
@@ -2798,8 +2813,8 @@ export function TemplatesView() {
           <SelectField
             label="Template"
             value={medicine.template}
-            options={diseaseClasses}
-            onChange={(value) => setMedicine({ ...medicine, template: value as DiseaseClass })}
+            options={moduleClasses}
+            onChange={(value) => setMedicine({ ...medicine, template: value as ClinicalClass })}
           />
           <Field label="Medicine name" value={medicine.name} onChange={(value) => setMedicine({ ...medicine, name: value })} />
           <Field label="Dose" value={medicine.dose} onChange={(value) => setMedicine({ ...medicine, dose: value })} />
@@ -2824,7 +2839,7 @@ export function TemplatesView() {
         </Button>
       </Card>
       <div className="grid gap-5 lg:grid-cols-2">
-        {diseaseClasses.map((item) => (
+        {moduleClasses.map((item) => (
           <Card key={item} className="p-5">
             <h3 className="text-lg font-black text-slate-950">{item}</h3>
             <div className="mt-4 grid gap-4">

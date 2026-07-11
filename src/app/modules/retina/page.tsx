@@ -6,8 +6,8 @@ export default function Page() {
     <AppShell>
       <LockedModuleView
         moduleName="Retinal Fundus Screening"
-        owner="Group 3"
-        description="Retinal/fundus disease screening module for DR, glaucoma-style findings, and report output once the Group 3 API is available."
+        owner="Retina Service"
+        description="Retinal/fundus disease screening module for DR, glaucoma-style findings, and report output once the retina API is available."
       />
     </AppShell>
   );

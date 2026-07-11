@@ -88,10 +88,28 @@ alter table scans add column if not exists clinic_id uuid references clinics(id)
 alter table scans add column if not exists department_id uuid references departments(id);
 alter table scans add column if not exists module_id text check (module_id in ('oct', 'vkg', 'corneal', 'retina'));
 alter table ai_results add column if not exists module_id text check (module_id in ('oct', 'vkg', 'corneal', 'retina'));
+alter table ai_results drop constraint if exists ai_results_predicted_class_check;
+alter table ai_results add constraint ai_results_predicted_class_check check (predicted_class in ('CNV', 'DME', 'DRUSEN', 'NORMAL', 'KCN', 'SUSPECT'));
 alter table reports add column if not exists clinic_id uuid references clinics(id);
 alter table reports add column if not exists department_id uuid references departments(id);
 alter table reports add column if not exists module_id text check (module_id in ('oct', 'vkg', 'corneal', 'retina'));
 alter table if exists report_templates add column if not exists module_id text default 'oct' check (module_id in ('oct', 'vkg', 'corneal', 'retina'));
+update report_templates set module_id = 'oct' where module_id is null;
+alter table report_templates drop constraint if exists report_templates_pkey;
+alter table report_templates drop constraint if exists report_templates_disease_class_check;
+alter table report_templates add constraint report_templates_disease_class_check check (disease_class in ('CNV', 'DME', 'DRUSEN', 'NORMAL', 'KCN', 'SUSPECT'));
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'report_templates_disease_class_key'
+      and conrelid = 'public.report_templates'::regclass
+  ) then
+    alter table report_templates drop constraint report_templates_disease_class_key;
+  end if;
+end $$;
+create unique index if not exists report_templates_module_class_uidx on report_templates(module_id, disease_class);
 alter table if exists feedback_entries add column if not exists clinic_id uuid references clinics(id);
 alter table if exists feedback_entries add column if not exists hospital_name text;
 alter table if exists feedback_entries add column if not exists department_id uuid references departments(id);
