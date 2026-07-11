@@ -105,8 +105,9 @@ export async function predictCorneal(file: File): Promise<BackendPrediction> {
 }
 
 export async function predictVKG(file: File): Promise<BackendPrediction> {
-  if (process.env.NEXT_PUBLIC_VKG_BACKEND_URL) {
-    return postImagePrediction(file, process.env.NEXT_PUBLIC_VKG_BACKEND_URL, "NEXT_PUBLIC_VKG_BACKEND_URL is missing.");
+  const vkgBackendUrl = process.env.NEXT_PUBLIC_VKG_BACKEND_URL ?? process.env.NEXT_PUBLIC_CORNEAL_BACKEND_URL;
+  if (vkgBackendUrl) {
+    return normalizeVkgPrediction(await postImagePrediction(file, vkgBackendUrl, "NEXT_PUBLIC_VKG_BACKEND_URL is missing."));
   }
 
   const bitmap = await createImageBitmap(file);
@@ -156,4 +157,33 @@ export async function predictVKG(file: File): Promise<BackendPrediction> {
     is_valid_oct: true,
     disclaimer: "VKG/topography AI screening output. Demo fallback is active until the trained VKG model API is connected."
   };
+}
+
+function normalizeVkgPrediction(prediction: BackendPrediction): BackendPrediction {
+  const rawProbabilities = prediction.probabilities as Record<string, number>;
+  const keratoconus = rawProbabilities.keratoconus ?? rawProbabilities.KCN ?? rawProbabilities.KERATOCONUS_RISK ?? 0;
+  const normal = rawProbabilities.non_keratoconus ?? rawProbabilities.NORMAL ?? rawProbabilities.NO_KERATOCONUS_RISK ?? 0;
+  const suspect = rawProbabilities.SUSPECT ?? Math.max(0, 1 - Math.max(keratoconus, normal));
+  const rawPrediction = prediction.prediction as string;
+  const mappedPrediction = rawPrediction === "KERATOCONUS_RISK"
+    ? "KCN"
+    : rawPrediction === "NO_KERATOCONUS_RISK"
+      ? "NORMAL"
+      : prediction.prediction;
+
+  if (mappedPrediction === "NORMAL" || mappedPrediction === "KCN" || mappedPrediction === "SUSPECT") {
+    return {
+      ...prediction,
+      prediction: mappedPrediction,
+      probabilities: {
+        NORMAL: normal,
+        KCN: keratoconus,
+        SUSPECT: suspect,
+      },
+      model_name: prediction.model_name || "VKG Keratoconus Screening Model",
+      disclaimer: prediction.disclaimer || "VKG/topography AI screening output. Requires clinician review.",
+    };
+  }
+
+  return prediction;
 }
