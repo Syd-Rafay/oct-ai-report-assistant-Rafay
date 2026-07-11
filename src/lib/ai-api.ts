@@ -110,53 +110,7 @@ export async function predictVKG(file: File): Promise<BackendPrediction> {
     return normalizeVkgPrediction(await postImagePrediction(file, vkgBackendUrl, "NEXT_PUBLIC_VKG_BACKEND_URL is missing."));
   }
 
-  const bitmap = await createImageBitmap(file);
-  const canvas = document.createElement("canvas");
-  const size = 96;
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Could not prepare VKG image for analysis.");
-  context.drawImage(bitmap, 0, 0, size, size);
-  const pixels = context.getImageData(0, 0, size, size).data;
-  let redDominance = 0;
-  let greenDominance = 0;
-  let brightPixels = 0;
-  for (let index = 0; index < pixels.length; index += 4) {
-    const red = pixels[index];
-    const green = pixels[index + 1];
-    const blue = pixels[index + 2];
-    redDominance += Math.max(0, red - green) / 255;
-    greenDominance += Math.max(0, green - red) / 255;
-    if ((red + green + blue) / 3 > 175) brightPixels += 1;
-  }
-  const total = pixels.length / 4;
-  const redScore = redDominance / total;
-  const greenScore = greenDominance / total;
-  const brightScore = brightPixels / total;
-  const kcnScore = Math.min(0.88, 0.42 + redScore * 1.9);
-  const normalScore = Math.min(0.86, 0.38 + greenScore * 1.4 + brightScore * 0.15);
-  const suspectScore = Math.max(0.12, 1 - Math.max(kcnScore, normalScore));
-  const prediction = kcnScore > normalScore + 0.08 ? "KCN" : normalScore > kcnScore + 0.08 ? "NORMAL" : "SUSPECT";
-  const probabilities = {
-    NORMAL: prediction === "NORMAL" ? normalScore : Math.max(0.08, normalScore * 0.75),
-    KCN: prediction === "KCN" ? kcnScore : Math.max(0.08, kcnScore * 0.75),
-    SUSPECT: prediction === "SUSPECT" ? Math.max(suspectScore, 0.54) : suspectScore
-  };
-  const sum = probabilities.NORMAL + probabilities.KCN + probabilities.SUSPECT;
-  return {
-    prediction,
-    confidence: probabilities[prediction] / sum,
-    probabilities: {
-      NORMAL: probabilities.NORMAL / sum,
-      KCN: probabilities.KCN / sum,
-      SUSPECT: probabilities.SUSPECT / sum
-    },
-    model_name: "VKG Keratoconus Demo Model",
-    model_version: "demo-v1.0",
-    is_valid_oct: true,
-    disclaimer: "VKG/topography AI screening output. Demo fallback is active until the trained VKG model API is connected."
-  };
+  throw new Error("VKG trained model backend is not connected. Add NEXT_PUBLIC_VKG_BACKEND_URL or NEXT_PUBLIC_CORNEAL_BACKEND_URL in Vercel before running VKG analysis.");
 }
 
 function normalizeVkgPrediction(prediction: BackendPrediction): BackendPrediction {

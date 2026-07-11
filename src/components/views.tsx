@@ -1664,7 +1664,7 @@ export function AnalysisView({ id }: { id: string }) {
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-black text-slate-950">Model Output</h3>
-            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">EfficientNet-B3</span>
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">{aiResult?.modelName ?? "Not analyzed"}</span>
           </div>
           <SafetyNotice />
           {analysisError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{analysisError}</p> : null}
