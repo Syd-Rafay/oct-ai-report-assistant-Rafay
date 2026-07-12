@@ -11,3 +11,6 @@ __pycache__/
 backend/.venv
 backend/saved_model/*.pth
 oct-ai-backend/.next/
+models/
+retina-ai-backend/node_modules/
+retina-ai-backend/__pycache__/

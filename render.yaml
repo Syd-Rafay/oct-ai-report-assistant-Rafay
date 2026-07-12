@@ -35,3 +35,20 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
+  - type: web
+    name: afio-retina-ai-backend
+    runtime: node
+    rootDir: retina-ai-backend
+    buildCommand: >-
+      python -m pip install --user gdown &&
+      python -m gdown --folder https://drive.google.com/drive/folders/1VBxwdx-CoSBP906N3Zx_gEjRGfeQtglo --output ../models &&
+      npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ALLOWED_ORIGIN
+        value: https://cvclinics.online
+      - key: SKIP_GRADCAM
+        value: "true"

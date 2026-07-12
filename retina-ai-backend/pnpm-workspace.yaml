@@ -1,0 +1,2 @@
+allowBuilds:
+  onnxruntime-node: set this to true or false
