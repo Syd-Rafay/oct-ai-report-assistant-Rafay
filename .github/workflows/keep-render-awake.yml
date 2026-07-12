@@ -16,6 +16,7 @@ jobs:
           set -e
           urls=(
             "https://oct-ai-backend.onrender.com/health"
+            "https://afio-corneal-ai-backend.onrender.com/health"
             "https://afio-retina-ai-backend.onrender.com/health"
           )
 
