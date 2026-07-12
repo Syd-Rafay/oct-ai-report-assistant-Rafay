@@ -40,7 +40,7 @@ services:
     runtime: node
     rootDir: retina-ai-backend
     buildCommand: >-
-      python -m pip install --user gdown &&
+      python -m pip install gdown &&
       python -m gdown --folder https://drive.google.com/drive/folders/1VBxwdx-CoSBP906N3Zx_gEjRGfeQtglo --output ../models &&
       npm install
     startCommand: node server.js
