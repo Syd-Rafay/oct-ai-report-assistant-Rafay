@@ -14,3 +14,6 @@ oct-ai-backend/.next/
 models/
 retina-ai-backend/node_modules/
 retina-ai-backend/__pycache__/
+
+.vercel
+.env*
