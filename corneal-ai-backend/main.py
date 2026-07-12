@@ -33,8 +33,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-models_dict, model_error = load_models()
+models_dict = None
+model_error = None
 summary = load_summary()
+
+
+def get_models():
+    global models_dict, model_error
+    if models_dict is None:
+        models_dict, model_error = load_models()
+    return models_dict, model_error
 
 
 @app.get("/")
@@ -44,7 +52,8 @@ def root():
         "service": "AFIO Corneal AI Backend",
         "model_name": MODEL_NAME,
         "model_version": MODEL_VERSION,
-        "models_loaded": list(models_dict.keys()),
+        "models_loaded": list(models_dict.keys()) if models_dict else [],
+        "lazy_model_loading": models_dict is None,
         "summary": summary,
         "disclaimer": DISCLAIMER,
     }
@@ -53,9 +62,9 @@ def root():
 @app.get("/health")
 def health():
     return {
-        "status": "ok" if models_dict else "model_error",
+        "status": "ok",
         "model_loaded": bool(models_dict),
-        "models_loaded": list(models_dict.keys()),
+        "models_loaded": list(models_dict.keys()) if models_dict else [],
         "error": model_error,
         "summary": summary,
     }
@@ -63,8 +72,9 @@ def health():
 
 @app.post("/predict", response_model=CornealPrediction)
 async def predict(file: UploadFile = File(...)):
-    if not models_dict:
-        raise HTTPException(status_code=503, detail=f"Corneal model is not loaded. {model_error}")
+    loaded_models, load_error = get_models()
+    if not loaded_models:
+        raise HTTPException(status_code=503, detail=f"Corneal model is not loaded. {load_error}")
     if file.content_type not in {"image/jpeg", "image/png"}:
         raise HTTPException(status_code=400, detail="Only JPG, JPEG, and PNG corneal images are supported.")
 
@@ -82,11 +92,11 @@ async def predict(file: UploadFile = File(...)):
             risk_level="UNKNOWN",
             model_name=MODEL_NAME,
             model_version=MODEL_VERSION,
-            models_used=list(models_dict.keys()),
+            models_used=list(loaded_models.keys()),
             is_valid_corneal=False,
             quality_metrics=quality["metrics"],
             validation_warnings=quality["warnings"],
             disclaimer=f"{INVALID_IMAGE_DISCLAIMER} {' '.join(quality['warnings'])}",
         )
 
-    return CornealPrediction(**predict_image(image, models_dict, quality))
+    return CornealPrediction(**predict_image(image, loaded_models, quality))

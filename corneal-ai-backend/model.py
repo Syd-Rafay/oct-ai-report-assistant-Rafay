@@ -83,6 +83,17 @@ MODEL_FILES = {
 }
 
 
+def selected_model_files() -> dict[str, tuple[Any, str]]:
+    selected = [
+        name.strip()
+        for name in os.getenv("CORNEAL_MODELS", "resnet50,densenet121,efficientnetv2").split(",")
+        if name.strip()
+    ]
+    if not selected:
+        selected = list(MODEL_FILES)
+    return {name: MODEL_FILES[name] for name in selected if name in MODEL_FILES}
+
+
 def clean_state_dict(checkpoint: Any) -> dict[str, torch.Tensor]:
     if isinstance(checkpoint, dict) and isinstance(checkpoint.get("model_state_dict"), dict):
         checkpoint = checkpoint["model_state_dict"]
@@ -94,7 +105,7 @@ def clean_state_dict(checkpoint: Any) -> dict[str, torch.Tensor]:
 def load_models() -> tuple[dict[str, nn.Module], str | None]:
     loaded: dict[str, nn.Module] = {}
     errors: list[str] = []
-    for name, (builder, filename) in MODEL_FILES.items():
+    for name, (builder, filename) in selected_model_files().items():
         path = CHECKPOINT_DIR / filename
         if not path.exists():
             errors.append(f"{name}: missing {path}")
