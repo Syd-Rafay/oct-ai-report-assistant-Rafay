@@ -6,84 +6,27 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import onnxruntime as ort
 from PIL import Image, UnidentifiedImageError
-from torchvision import models, transforms
 
 
 CHECKPOINT_DIR = Path(os.getenv("CORNEAL_CHECKPOINT_DIR", "checkpoints"))
+ONNX_DIR = Path(os.getenv("CORNEAL_ONNX_DIR", "onnx"))
 MODEL_NAME = "Group 2 Binary Corneal Ensemble"
-MODEL_VERSION = "binary-ensemble-v1"
+MODEL_VERSION = "binary-ensemble-onnx-v1"
 DISCLAIMER = "AI-assisted corneal keratoconus screening result. Requires doctor review."
 INVALID_IMAGE_DISCLAIMER = "Please upload a corneal topography/VKG-style image for this screening model."
 LOW_CONFIDENCE_DISCLAIMER = "The uploaded image resembles VKG/topography, but the AI confidence is low. Ask a doctor to review and consider repeating the scan."
 CLASS_NAMES = ["non_keratoconus", "keratoconus"]
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.set_num_threads(int(os.getenv("TORCH_NUM_THREADS", "2")))
-
-preprocess = transforms.Compose(
-    [
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ]
-)
-
-
-def build_resnet50() -> nn.Module:
-    model = models.resnet50(weights=None)
-    in_features = model.fc.in_features
-    model.fc = nn.Sequential(
-        nn.BatchNorm1d(in_features),
-        nn.Dropout(0.4),
-        nn.Linear(in_features, 256),
-        nn.ReLU(),
-        nn.Dropout(0.3),
-        nn.Linear(256, 2),
-    )
-    return model
-
-
-def build_densenet121() -> nn.Module:
-    model = models.densenet121(weights=None)
-    in_features = model.classifier.in_features
-    model.classifier = nn.Sequential(
-        nn.BatchNorm1d(in_features),
-        nn.Dropout(0.4),
-        nn.Linear(in_features, 256),
-        nn.ReLU(),
-        nn.Dropout(0.3),
-        nn.Linear(256, 2),
-    )
-    return model
-
-
-def build_efficientnetv2() -> nn.Module:
-    model = models.efficientnet_v2_s(weights=None)
-    in_features = model.classifier[1].in_features
-    model.classifier = nn.Sequential(
-        nn.BatchNorm1d(in_features),
-        nn.Dropout(0.4),
-        nn.Linear(in_features, 512),
-        nn.SiLU(),
-        nn.BatchNorm1d(512),
-        nn.Dropout(0.3),
-        nn.Linear(512, 2),
-    )
-    return model
-
-
 MODEL_FILES = {
-    "resnet50": (build_resnet50, "binary_resnet50.pt"),
-    "densenet121": (build_densenet121, "binary_densenet121.pt"),
-    "efficientnetv2": (build_efficientnetv2, "binary_efficientnetv2.pt"),
+    "resnet50": "binary_resnet50.onnx",
+    "densenet121": "binary_densenet121.onnx",
+    "efficientnetv2": "binary_efficientnetv2.onnx",
 }
 
 
-def selected_model_files() -> dict[str, tuple[Any, str]]:
+def selected_model_files() -> dict[str, str]:
     selected = [
         name.strip()
         for name in os.getenv("CORNEAL_MODELS", "densenet121").split(",")
@@ -94,29 +37,24 @@ def selected_model_files() -> dict[str, tuple[Any, str]]:
     return {name: MODEL_FILES[name] for name in selected if name in MODEL_FILES}
 
 
-def clean_state_dict(checkpoint: Any) -> dict[str, torch.Tensor]:
-    if isinstance(checkpoint, dict) and isinstance(checkpoint.get("model_state_dict"), dict):
-        checkpoint = checkpoint["model_state_dict"]
-    if not isinstance(checkpoint, dict):
-        raise RuntimeError("Unsupported checkpoint format.")
-    return {key.removeprefix("module."): value for key, value in checkpoint.items()}
-
-
-def load_models() -> tuple[dict[str, nn.Module], str | None]:
-    loaded: dict[str, nn.Module] = {}
+def load_models() -> tuple[dict[str, ort.InferenceSession], str | None]:
+    loaded: dict[str, ort.InferenceSession] = {}
     errors: list[str] = []
-    for name, (builder, filename) in selected_model_files().items():
-        path = CHECKPOINT_DIR / filename
+    session_options = ort.SessionOptions()
+    session_options.intra_op_num_threads = int(os.getenv("ORT_NUM_THREADS", "1"))
+    session_options.inter_op_num_threads = 1
+
+    for name, filename in selected_model_files().items():
+        path = ONNX_DIR / filename
         if not path.exists():
             errors.append(f"{name}: missing {path}")
             continue
         try:
-            checkpoint = torch.load(path, map_location=DEVICE)
-            model = builder()
-            model.load_state_dict(clean_state_dict(checkpoint), strict=True)
-            model.to(DEVICE)
-            model.eval()
-            loaded[name] = model
+            loaded[name] = ort.InferenceSession(
+                str(path),
+                sess_options=session_options,
+                providers=["CPUExecutionProvider"],
+            )
         except Exception as exc:
             errors.append(f"{name}: {exc}")
     return loaded, "; ".join(errors) if errors else None
@@ -211,13 +149,33 @@ def low_confidence_warning(confidence: float, keratoconus_probability: float) ->
         return "Borderline keratoconus probability. Treat as suspect and review clinically."
     return None
 
-def predict_image(image: Image.Image, models_dict: dict[str, nn.Module], quality: dict[str, Any] | None = None) -> dict[str, Any]:
+
+def preprocess_image(image: Image.Image) -> np.ndarray:
+    resized = image.resize((224, 224))
+    array = np.asarray(resized).astype(np.float32) / 255.0
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    normalized = (array - mean) / std
+    return np.transpose(normalized, (2, 0, 1))[None, :, :, :]
+
+
+def softmax(logits: np.ndarray) -> np.ndarray:
+    stable = logits - np.max(logits, axis=1, keepdims=True)
+    exp = np.exp(stable)
+    return exp / exp.sum(axis=1, keepdims=True)
+
+
+def predict_image(image: Image.Image, models_dict: dict[str, ort.InferenceSession], quality: dict[str, object] | None = None) -> dict[str, object]:
+    if not models_dict:
+        raise RuntimeError("No corneal ONNX models are loaded.")
+
     started_at = time.perf_counter()
-    tensor = preprocess(image).unsqueeze(0).to(DEVICE)
+    tensor = preprocess_image(image)
     probabilities_by_model = []
-    with torch.inference_mode():
-        for model in models_dict.values():
-            probabilities_by_model.append(F.softmax(model(tensor), dim=1)[0].cpu().numpy())
+    for session in models_dict.values():
+        input_name = session.get_inputs()[0].name
+        logits = session.run(None, {input_name: tensor})[0]
+        probabilities_by_model.append(softmax(logits)[0])
 
     averaged = np.stack(probabilities_by_model, axis=0).mean(axis=0)
     non_kc = round(float(averaged[0]), 4)

@@ -93,6 +93,7 @@ export type BackendPrediction = {
   probabilities: Partial<Record<ClinicalClass, number>>;
   model_name: string;
   model_version: string;
+  models_used?: string[];
   is_valid_oct?: boolean;
   is_valid_corneal?: boolean;
   quality_metrics?: Record<string, number | boolean | string>;

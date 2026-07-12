@@ -22,11 +22,12 @@ services:
     rootDir: corneal-ai-backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
       - key: ALLOWED_ORIGINS
         sync: false
-      - key: TORCH_NUM_THREADS
-        value: "2"
+      - key: ORT_NUM_THREADS
+        value: "1"
       - key: CORNEAL_MODELS
         value: densenet121
       - key: SUPABASE_URL
@@ -37,6 +38,48 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
+  - type: web
+    name: afio-corneal-resnet-backend
+    runtime: python
+    rootDir: corneal-ai-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ORT_NUM_THREADS
+        value: "1"
+      - key: CORNEAL_MODELS
+        value: resnet50
+  - type: web
+    name: afio-corneal-densenet-backend
+    runtime: python
+    rootDir: corneal-ai-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ORT_NUM_THREADS
+        value: "1"
+      - key: CORNEAL_MODELS
+        value: densenet121
+  - type: web
+    name: afio-corneal-efficientnet-backend
+    runtime: python
+    rootDir: corneal-ai-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ORT_NUM_THREADS
+        value: "1"
+      - key: CORNEAL_MODELS
+        value: efficientnetv2
   - type: web
     name: afio-retina-ai-backend
     runtime: node

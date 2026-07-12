@@ -97,20 +97,37 @@ export async function predictOCTWithGradcam(file: File): Promise<BackendPredicti
 }
 
 export async function predictCorneal(file: File): Promise<BackendPrediction> {
-  return postImagePrediction(
-    file,
-    process.env.NEXT_PUBLIC_CORNEAL_BACKEND_URL,
-    "NEXT_PUBLIC_CORNEAL_BACKEND_URL is missing. Add the Corneal Render service URL."
-  );
+  return predictVKG(file);
 }
 
 export async function predictVKG(file: File): Promise<BackendPrediction> {
-  const vkgBackendUrl = process.env.NEXT_PUBLIC_VKG_BACKEND_URL ?? process.env.NEXT_PUBLIC_CORNEAL_BACKEND_URL;
-  if (vkgBackendUrl) {
-    return normalizeVkgPrediction(await postImagePrediction(file, vkgBackendUrl, "NEXT_PUBLIC_VKG_BACKEND_URL is missing."));
+  const backendUrls = uniqueUrls([
+    process.env.NEXT_PUBLIC_VKG_BACKEND_URL,
+    process.env.NEXT_PUBLIC_CORNEAL_BACKEND_URL,
+    process.env.NEXT_PUBLIC_CORNEAL_RESNET_BACKEND_URL,
+    process.env.NEXT_PUBLIC_CORNEAL_DENSENET_BACKEND_URL,
+    process.env.NEXT_PUBLIC_CORNEAL_EFFICIENTNET_BACKEND_URL,
+  ]);
+  if (backendUrls.length > 1) {
+    return normalizeVkgEnsemblePrediction(
+      await Promise.all(backendUrls.map((url) => postImagePrediction(file, url, "A configured VKG backend URL is missing.")))
+    );
+  }
+  if (backendUrls.length === 1) {
+    return normalizeVkgPrediction(await postImagePrediction(file, backendUrls[0], "NEXT_PUBLIC_VKG_BACKEND_URL is missing."));
   }
 
-  throw new Error("VKG trained model backend is not connected. Add NEXT_PUBLIC_VKG_BACKEND_URL or NEXT_PUBLIC_CORNEAL_BACKEND_URL in Vercel before running VKG analysis.");
+  throw new Error("VKG trained model backend is not connected. Add NEXT_PUBLIC_VKG_BACKEND_URL, NEXT_PUBLIC_CORNEAL_BACKEND_URL, or split corneal backend URLs in Vercel before running VKG analysis.");
+}
+
+function uniqueUrls(urls: Array<string | undefined>): string[] {
+  return Array.from(
+    new Set(
+      urls
+        .map((url) => url?.trim().replace(/\/$/, ""))
+        .filter((url): url is string => Boolean(url))
+    )
+  );
 }
 
 export async function predictRetina(file: File): Promise<BackendPrediction> {
@@ -230,5 +247,48 @@ function normalizeVkgPrediction(prediction: BackendPrediction): BackendPredictio
   return {
     ...prediction,
     is_valid_oct: isValidVkg,
+  };
+}
+
+function normalizeVkgEnsemblePrediction(predictions: BackendPrediction[]): BackendPrediction {
+  if (predictions.length === 0) {
+    throw new Error("No VKG backend predictions returned.");
+  }
+
+  const normalized = predictions.map(normalizeVkgPrediction);
+  const probabilitySum = normalized.reduce(
+    (sum, prediction) => {
+      const probabilities = prediction.probabilities as Record<string, number>;
+      return {
+        NORMAL: sum.NORMAL + Number(probabilities.NORMAL ?? 0),
+        KCN: sum.KCN + Number(probabilities.KCN ?? 0),
+        SUSPECT: sum.SUSPECT + Number(probabilities.SUSPECT ?? 0),
+      };
+    },
+    { NORMAL: 0, KCN: 0, SUSPECT: 0 }
+  );
+  const probabilities = {
+    NORMAL: Number((probabilitySum.NORMAL / normalized.length).toFixed(4)),
+    KCN: Number((probabilitySum.KCN / normalized.length).toFixed(4)),
+    SUSPECT: Number((probabilitySum.SUSPECT / normalized.length).toFixed(4)),
+  };
+  const prediction = probabilities.KCN >= 0.5 ? "KCN" : probabilities.SUSPECT >= 0.4 ? "SUSPECT" : "NORMAL";
+  const confidence = prediction === "KCN" ? probabilities.KCN : prediction === "SUSPECT" ? probabilities.SUSPECT : probabilities.NORMAL;
+  const modelNames = normalized.map((item) => item.model_name).filter(Boolean);
+  const modelVersions = normalized.map((item) => item.model_version).filter(Boolean);
+  const modelsUsed = normalized.flatMap((item) => Array.isArray(item.models_used) ? item.models_used : []);
+  const first = normalized[0];
+
+  return {
+    ...first,
+    prediction,
+    confidence,
+    probabilities,
+    models_used: Array.from(new Set(modelsUsed)),
+    is_valid_oct: normalized.every((item) => item.is_valid_oct ?? true),
+    model_name: modelNames.length ? `Split ${Array.from(new Set(modelNames)).join(" + ")}` : "Split VKG Keratoconus Screening Model",
+    model_version: modelVersions.length ? Array.from(new Set(modelVersions)).join(" | ") : first.model_version,
+    disclaimer: first.disclaimer || "VKG/topography split-model ensemble output. Requires clinician review.",
+    request_time_ms: Math.max(...normalized.map((item) => Number(item.request_time_ms ?? 0))),
   };
 }

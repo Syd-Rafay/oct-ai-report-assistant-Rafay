@@ -17,6 +17,9 @@ jobs:
           urls=(
             "https://oct-ai-backend.onrender.com/health"
             "https://afio-corneal-ai-backend.onrender.com/health"
+            "https://afio-corneal-resnet-backend.onrender.com/health"
+            "https://afio-corneal-densenet-backend.onrender.com/health"
+            "https://afio-corneal-efficientnet-backend.onrender.com/health"
             "https://afio-retina-ai-backend.onrender.com/health"
           )
 
