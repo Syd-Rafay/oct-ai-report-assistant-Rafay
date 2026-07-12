@@ -63,6 +63,31 @@ export const reportTemplates: Record<
       "AI-assisted VKG screening suggests a suspect / borderline corneal topography pattern.",
     recommendation:
       "Repeat or verify image quality, compare with prior topography if available, and review clinically before confirming disease or normal status."
+  },
+  NO_DR: {
+    findings: "The fundus image does not show AI-screening features of diabetic retinopathy.",
+    impression: "AI-assisted fundus screening suggests no diabetic retinopathy.",
+    recommendation: "Routine diabetic eye screening and clinician review are advised."
+  },
+  MILD_DR: {
+    findings: "The fundus image shows mild AI-screening features that may be consistent with early diabetic retinopathy.",
+    impression: "AI-assisted fundus screening suggests mild diabetic retinopathy.",
+    recommendation: "Clinical review, glycaemic control optimisation, and follow-up screening are advised."
+  },
+  MODERATE_DR: {
+    findings: "The fundus image shows moderate AI-screening features of diabetic retinopathy.",
+    impression: "AI-assisted fundus screening suggests moderate diabetic retinopathy.",
+    recommendation: "Ophthalmology review and correlation with visual acuity, fundus examination, and diabetic history are advised."
+  },
+  SEVERE_DR: {
+    findings: "The fundus image shows severe AI-screening features of diabetic retinopathy.",
+    impression: "AI-assisted fundus screening suggests severe diabetic retinopathy.",
+    recommendation: "Urgent ophthalmology referral is advised after clinician confirmation."
+  },
+  PROLIFERATIVE_DR: {
+    findings: "The fundus image shows AI-screening features concerning for proliferative diabetic retinopathy.",
+    impression: "AI-assisted fundus screening suggests proliferative diabetic retinopathy.",
+    recommendation: "Emergency or urgent retinal specialist review is advised after clinician confirmation."
   }
 };
 
@@ -77,6 +102,7 @@ type DbReportTemplate = {
 };
 
 function classesForModule(moduleId: ModuleId): ClinicalClass[] {
+  if (moduleId === "retina") return ["NO_DR", "MILD_DR", "MODERATE_DR", "SEVERE_DR", "PROLIFERATIVE_DR"];
   return moduleId === "vkg" ? ["NORMAL", "KCN", "SUSPECT"] : ["NORMAL", "CNV", "DME", "DRUSEN"];
 }
 

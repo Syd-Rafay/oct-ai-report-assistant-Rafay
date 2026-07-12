@@ -5,7 +5,8 @@ export type EyeSide = "Left" | "Right" | "Both" | "Unknown";
 export type ModuleId = "oct" | "vkg" | "corneal" | "retina";
 export type DiseaseClass = "CNV" | "DME" | "DRUSEN" | "NORMAL";
 export type VkgClass = "NORMAL" | "KCN" | "SUSPECT";
-export type ClinicalClass = DiseaseClass | VkgClass;
+export type RetinaClass = "NO_DR" | "MILD_DR" | "MODERATE_DR" | "SEVERE_DR" | "PROLIFERATIVE_DR";
+export type ClinicalClass = DiseaseClass | VkgClass | RetinaClass;
 export type PredictionClass = ClinicalClass | "INVALID_IMAGE" | "INVALID_OR_UNCERTAIN_IMAGE";
 export type ReportStatus = "draft" | "pending_review" | "approved" | "rejected" | "superseded";
 
@@ -108,7 +109,19 @@ export function isDiseaseClass(value: PredictionClass): value is DiseaseClass {
 }
 
 export function isClinicalClass(value: PredictionClass): value is ClinicalClass {
-  return value === "CNV" || value === "DME" || value === "DRUSEN" || value === "NORMAL" || value === "KCN" || value === "SUSPECT";
+  return (
+    value === "CNV" ||
+    value === "DME" ||
+    value === "DRUSEN" ||
+    value === "NORMAL" ||
+    value === "KCN" ||
+    value === "SUSPECT" ||
+    value === "NO_DR" ||
+    value === "MILD_DR" ||
+    value === "MODERATE_DR" ||
+    value === "SEVERE_DR" ||
+    value === "PROLIFERATIVE_DR"
+  );
 }
 
 export type Report = {

@@ -1,12 +1,12 @@
 import type { BackendPrediction } from "./types";
 
-async function postImagePrediction(file: File, backendUrl: string | undefined, missingMessage: string): Promise<BackendPrediction> {
+async function postImagePrediction(file: File, backendUrl: string | undefined, missingMessage: string, fieldName = "file"): Promise<BackendPrediction> {
   if (!backendUrl) {
     throw new Error(missingMessage);
   }
 
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append(fieldName, file);
   const startedAt = performance.now();
 
   let response: Response;
@@ -111,6 +111,56 @@ export async function predictVKG(file: File): Promise<BackendPrediction> {
   }
 
   throw new Error("VKG trained model backend is not connected. Add NEXT_PUBLIC_VKG_BACKEND_URL or NEXT_PUBLIC_CORNEAL_BACKEND_URL in Vercel before running VKG analysis.");
+}
+
+export async function predictRetina(file: File): Promise<BackendPrediction> {
+  return normalizeRetinaPrediction(
+    await postImagePrediction(
+      file,
+      process.env.NEXT_PUBLIC_RETINA_BACKEND_URL,
+      "NEXT_PUBLIC_RETINA_BACKEND_URL is missing. Add the Retina Render service URL.",
+      "image"
+    )
+  );
+}
+
+function normalizeRetinaPrediction(prediction: BackendPrediction & {
+  predicted_class?: number;
+  severity_label?: string;
+  scores?: Record<string, number> | number[];
+  referral?: string;
+  heatmap?: string | null;
+  low_confidence?: boolean;
+  confidence_warning?: string;
+}): BackendPrediction {
+  const labels = ["NO_DR", "MILD_DR", "MODERATE_DR", "SEVERE_DR", "PROLIFERATIVE_DR"] as const;
+  const scoreValues = Array.isArray(prediction.scores)
+    ? prediction.scores
+    : labels.map((_, index) => Number((prediction.scores as Record<string, number> | undefined)?.[String(index)] ?? 0));
+  const predictedClass = labels[prediction.predicted_class ?? 0] ?? "NO_DR";
+
+  return {
+    ...prediction,
+    prediction: predictedClass,
+    confidence: Number(prediction.confidence ?? scoreValues[prediction.predicted_class ?? 0] ?? 0),
+    probabilities: {
+      NO_DR: scoreValues[0] ?? 0,
+      MILD_DR: scoreValues[1] ?? 0,
+      MODERATE_DR: scoreValues[2] ?? 0,
+      SEVERE_DR: scoreValues[3] ?? 0,
+      PROLIFERATIVE_DR: scoreValues[4] ?? 0,
+    },
+    is_valid_oct: true,
+    model_name: prediction.model_name || "Retina Diabetic Retinopathy Screening Model",
+    model_version: prediction.model_version || "Group 3 ONNX",
+    gradcam_overlay_base64: prediction.heatmap ?? prediction.gradcam_overlay_base64,
+    disclaimer:
+      prediction.disclaimer ||
+      [prediction.severity_label, prediction.referral, prediction.confidence_warning]
+        .filter(Boolean)
+        .join(" | ") ||
+      "Fundus AI screening output. Requires clinician review.",
+  };
 }
 
 function normalizeVkgPrediction(prediction: BackendPrediction): BackendPrediction {

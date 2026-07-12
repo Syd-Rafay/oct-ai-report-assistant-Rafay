@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { PageTitle } from "./app-shell";
 import { Button, Card, CardHeader, EmptyState, SafetyNotice, StatusBadge } from "./ui";
-import { predictOCTWithGradcam, predictVKG } from "@/lib/ai-api";
+import { predictOCTWithGradcam, predictRetina, predictVKG } from "@/lib/ai-api";
 import { useDemoStore } from "@/lib/demo-store";
 import { addFeedbackResponse, getCachedFeedbackEntries, getFeedbackEntries, submitFeedback, updateFeedbackStatus } from "@/lib/feedback";
 import { prepareScanImages } from "@/lib/image-processing";
@@ -38,6 +38,7 @@ import type { ClinicalClass, DiseaseClass, EyeSide, FeedbackEntry, Gender, Modul
 
 const diseaseClasses: DiseaseClass[] = ["CNV", "DME", "DRUSEN", "NORMAL"];
 const vkgClasses: ClinicalClass[] = ["NORMAL", "KCN", "SUSPECT"];
+const retinaClasses: ClinicalClass[] = ["NO_DR", "MILD_DR", "MODERATE_DR", "SEVERE_DR", "PROLIFERATIVE_DR"];
 
 const MIN_PATIENT_AGE = 0;
 const MAX_PATIENT_AGE = 130;
@@ -1689,10 +1690,10 @@ export function UploadScanView() {
     }
     setLoading(true);
     try {
-      if (moduleId === "retina" || moduleId === "corneal") {
+      if (moduleId === "corneal") {
         throw new Error(`${moduleLabel} AI backend is not connected yet. Use this module workspace for patient setup and deployment tracking until its Render service is live.`);
       }
-      const prediction = moduleId === "vkg" ? await predictVKG(predictionFile) : await predictOCTWithGradcam(predictionFile);
+      const prediction = moduleId === "retina" ? await predictRetina(predictionFile) : moduleId === "vkg" ? await predictVKG(predictionFile) : await predictOCTWithGradcam(predictionFile);
       if (!prediction.is_valid_oct) {
         const message =
           prediction.prediction === "INVALID_IMAGE"
@@ -1773,7 +1774,7 @@ export function AnalysisView({ id }: { id: string }) {
   const linkedReport = aiResult ? store.data.reports.find((report) => report.aiResultId === aiResult.id) : undefined;
   const canManageAnalysis = store.currentUser.role === "doctor" || store.currentUser.role === "hospital_admin" || store.currentUser.role === "admin";
   const canManageScan = canManageAnalysis;
-  const analysisClasses = scan.moduleId === "vkg" ? vkgClasses : diseaseClasses;
+  const analysisClasses = scan.moduleId === "retina" ? retinaClasses : scan.moduleId === "vkg" ? vkgClasses : diseaseClasses;
 
   const analyzeScan = async () => {
     setAnalysisError("");
@@ -1784,7 +1785,7 @@ export function AnalysisView({ id }: { id: string }) {
       const blob = await response.blob();
       const file = new File([blob], `${scan.id}.jpg`, { type: blob.type || "image/jpeg" });
       const prepared = await prepareScanImages(file);
-      const prediction = await predictOCTWithGradcam(prepared.predictionFile);
+      const prediction = scan.moduleId === "retina" ? await predictRetina(prepared.predictionFile) : scan.moduleId === "vkg" ? await predictVKG(prepared.predictionFile) : await predictOCTWithGradcam(prepared.predictionFile);
       const result = await store.saveBackendAnalysis(scan, prediction);
       return result;
     } catch (err) {
