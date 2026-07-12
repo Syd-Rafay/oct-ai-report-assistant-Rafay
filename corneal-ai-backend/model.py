@@ -86,7 +86,7 @@ MODEL_FILES = {
 def selected_model_files() -> dict[str, tuple[Any, str]]:
     selected = [
         name.strip()
-        for name in os.getenv("CORNEAL_MODELS", "resnet50,densenet121,efficientnetv2").split(",")
+        for name in os.getenv("CORNEAL_MODELS", "densenet121").split(",")
         if name.strip()
     ]
     if not selected:

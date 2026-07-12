@@ -27,6 +27,8 @@ services:
         sync: false
       - key: TORCH_NUM_THREADS
         value: "2"
+      - key: CORNEAL_MODELS
+        value: densenet121
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
