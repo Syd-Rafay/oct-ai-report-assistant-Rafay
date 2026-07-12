@@ -55,6 +55,11 @@ function getModuleLabel(moduleId: ModuleId) {
   return "OCT";
 }
 
+function reportHistoryHref(moduleId?: ModuleId) {
+  const resolvedModuleId = moduleId ?? "oct";
+  return resolvedModuleId === "oct" ? "/reports/history?module=oct" : `/reports/history?module=${resolvedModuleId}`;
+}
+
 function filterPatientsForModule(patients: Patient[], scans: Scan[], moduleId: ModuleId) {
   const patientIdsWithModuleScans = new Set(scans.filter((scan) => (scan.moduleId ?? "oct") === moduleId).map((scan) => scan.patientId));
   return patients.filter((patient) => {
@@ -1962,6 +1967,8 @@ export function ReportEditorView({ id }: { id: string }) {
   const patient = store.data.patients.find((item) => item.id === draft.patientId);
   const scan = store.data.scans.find((item) => item.id === draft.scanId);
   const ai = store.data.aiResults.find((item) => item.id === draft.aiResultId);
+  const reportModuleId = draft.moduleId ?? scan?.moduleId ?? ai?.moduleId ?? "oct";
+  const reportModuleClasses = reportClassesForModule(reportModuleId);
   const canApprove = store.currentUser.role === "doctor";
   const canManageScan = store.currentUser.role === "doctor" || store.currentUser.role === "hospital_admin" || store.currentUser.role === "admin";
   const patientAccessId = patient ? getPatientAccessId(patient) : "";
@@ -1983,7 +1990,7 @@ export function ReportEditorView({ id }: { id: string }) {
     if (!window.confirm("Delete this report permanently?")) return;
     try {
       await store.deleteReport(draft.id);
-      router.push("/reports/history");
+      router.push(reportHistoryHref(reportModuleId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete report.");
     }
@@ -2083,7 +2090,7 @@ export function ReportEditorView({ id }: { id: string }) {
             <SelectField
               label="Final diagnosis"
               value={draft.finalDiagnosis}
-              options={["Needs clinical correlation", ...diseaseClasses]}
+              options={["Needs clinical correlation", ...reportModuleClasses]}
               onChange={(value) => setDraft({ ...draft, finalDiagnosis: value as Report["finalDiagnosis"] })}
             />
           </div>
@@ -2127,6 +2134,7 @@ export function ReportView({ id }: { id: string }) {
   const patient = store.data.patients.find((item) => item.id === report.patientId);
   const scan = store.data.scans.find((item) => item.id === report.scanId);
   const ai = store.data.aiResults.find((item) => item.id === report.aiResultId);
+  const reportModuleId = report.moduleId ?? scan?.moduleId ?? ai?.moduleId ?? "oct";
   const approver = store.data.profiles.find((item) => item.id === report.approvedBy);
   const canDoctorEdit = store.currentUser.role === "doctor";
   const canManageScan = store.currentUser.role === "doctor" || store.currentUser.role === "hospital_admin" || store.currentUser.role === "admin";
@@ -2150,7 +2158,7 @@ export function ReportView({ id }: { id: string }) {
     setWorking(true);
     try {
       await store.deleteReport(report.id);
-      router.push("/reports/history");
+      router.push(reportHistoryHref(reportModuleId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete report.");
       setWorking(false);
@@ -2270,8 +2278,8 @@ export function ReportView({ id }: { id: string }) {
 export function ReportHistoryView() {
   const store = useDemoStore();
   const searchParams = useSearchParams();
-  const moduleId = (searchParams.get("module") === "vkg" ? "vkg" : "oct") as ModuleId;
-  const moduleLabel = moduleId === "vkg" ? "VKG" : "OCT";
+  const moduleId = moduleFromSearchParams(searchParams);
+  const moduleLabel = getModuleLabel(moduleId);
   const [query, setQuery] = useState("");
   const reports = store.data.reports.filter((report) => (report.moduleId ?? "oct") === moduleId).filter((report) => {
     const patient = store.data.patients.find((item) => item.id === report.patientId);
@@ -2926,8 +2934,8 @@ export function AdminUsersView() {
 export function TemplatesView() {
   const store = useDemoStore();
   const searchParams = useSearchParams();
-  const moduleId = (searchParams.get("module") === "vkg" ? "vkg" : "oct") as ModuleId;
-  const moduleLabel = moduleId === "vkg" ? "VKG" : "OCT";
+  const moduleId = moduleFromSearchParams(searchParams);
+  const moduleLabel = getModuleLabel(moduleId);
   const moduleClasses = reportClassesForModule(moduleId);
   const canEditTemplates = store.currentUser.role === "hospital_admin" || store.currentUser.role === "admin" || store.currentUser.role === "doctor";
   const [templates, setTemplates] = useState(reportTemplates);
@@ -2935,7 +2943,7 @@ export function TemplatesView() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [medicine, setMedicine] = useState({
-    template: (moduleId === "vkg" ? "KCN" : "DME") as ClinicalClass,
+    template: (moduleId === "retina" ? "NO_DR" : moduleId === "vkg" ? "KCN" : "DME") as ClinicalClass,
     name: "",
     dose: "",
     route: "Oral",
@@ -2970,6 +2978,13 @@ export function TemplatesView() {
     return () => {
       cancelled = true;
     };
+  }, [moduleId]);
+
+  useEffect(() => {
+    setMedicine((current) => ({
+      ...current,
+      template: (moduleId === "retina" ? "NO_DR" : moduleId === "vkg" ? "KCN" : "DME") as ClinicalClass
+    }));
   }, [moduleId]);
 
   const saveTemplates = async () => {
