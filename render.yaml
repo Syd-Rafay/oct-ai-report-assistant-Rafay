@@ -97,3 +97,5 @@ services:
         value: https://cvclinics.online
       - key: SKIP_GRADCAM
         value: "true"
+      - key: ORT_NUM_THREADS
+        value: "1"

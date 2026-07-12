@@ -25,6 +25,11 @@ const HR_MODEL_PATH = path.join(
   "hr_efficientnet_model.onnx",
 );
 const GRADCAM_SERVICE_URL = "http://localhost:5000/gradcam";
+const ORT_SESSION_OPTIONS = {
+  executionProviders: ["cpu"],
+  intraOpNumThreads: Number(process.env.ORT_NUM_THREADS || 1),
+  interOpNumThreads: 1,
+};
 
 const CLASS_LABELS = {
   0: "No DR",
@@ -498,9 +503,9 @@ async function start() {
 
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
-  session = await ort.InferenceSession.create(MODEL_PATH);
-  glaucomaSession = await ort.InferenceSession.create(GLAUCOMA_MODEL_PATH);
-  hrSession = await ort.InferenceSession.create(HR_MODEL_PATH);
+  session = await ort.InferenceSession.create(MODEL_PATH, ORT_SESSION_OPTIONS);
+  glaucomaSession = await ort.InferenceSession.create(GLAUCOMA_MODEL_PATH, ORT_SESSION_OPTIONS);
+  hrSession = await ort.InferenceSession.create(HR_MODEL_PATH, ORT_SESSION_OPTIONS);
   app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
   });

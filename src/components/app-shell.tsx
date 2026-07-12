@@ -62,7 +62,14 @@ const moduleTreeItems = {
     { href: "/admin/templates?module=vkg", label: "Templates", icon: ClipboardList }
   ],
   corneal: [{ href: "/modules/corneal", label: "Overview", icon: LayoutDashboard }],
-  retina: [{ href: "/modules/retina", label: "Overview", icon: LayoutDashboard }]
+  retina: [
+    { href: "/modules/retina", label: "Overview", icon: LayoutDashboard },
+    { href: "/patients/search?module=retina", label: "Patients", icon: Users },
+    { href: "/patients/new?module=retina", label: "New Patient", icon: UserCog },
+    { href: "/scans/upload?module=retina", label: "Upload Fundus", icon: Upload },
+    { href: "/reports/history?module=retina", label: "Reports", icon: FileText },
+    { href: "/admin/templates?module=retina", label: "Templates", icon: ClipboardList }
+  ]
 };
 
 const doctorItems: Array<{ href: string; label: string; icon: React.ComponentType<{ size?: number }> }> = [];

@@ -52,8 +52,9 @@ export const clinicalModules: ClinicalModule[] = [
     name: "Retinal Fundus Screening",
     department: "Retina Department",
     shortName: "Retina",
-    status: "model_received",
+    status: "live",
     description: "Fundus screening workflow for DR severity, glaucoma risk, and hypertensive retinopathy.",
+    route: "/modules/retina",
     accent: "bg-violet-50 text-violet-800 ring-violet-200",
     icon: Eye
   }

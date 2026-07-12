@@ -591,9 +591,9 @@ export function DashboardView() {
       title: "Retinal Fundus Screening",
       owner: "RETINA SERVICE",
       route: "/modules/retina",
-      status: "Awaiting API",
-      summary: "Retinal/fundus disease screening module for DR, glaucoma-style findings, and report output.",
-      accessHint: "Enable after the retina model/API is available."
+      status: "Live",
+      summary: "Group 3 fundus workflow with DR severity, glaucoma CDR/risk, hypertensive-retinopathy screening, patient records, reports, and editable templates.",
+      accessHint: "Enable after the hospital purchases Retina access."
     }
   ];
   const visibleModules = store.currentUser.role === "afio_admin" ? platformModules : platformModules.filter((module) => module.enabled);
@@ -923,7 +923,7 @@ export function RetinaModuleView() {
           ["Fundus scans", retinaScans.length],
           ["Reports", retinaReports.length],
           ["AI services", 3],
-          ["Deployment", "Pending models"]
+          ["Deployment", "Live"]
         ].map(([label, value]) => (
           <Card key={label} className="p-5">
             <p className="text-sm font-semibold text-slate-500">{label}</p>
@@ -956,7 +956,7 @@ export function RetinaModuleView() {
           <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             <p className="font-black">Deployment note</p>
             <p className="mt-2 leading-6">
-              Group 3 is live on Render. One fundus upload runs diabetic-retinopathy severity, glaucoma CDR/risk, and hypertensive-retinopathy screening together, then routes the combined result into doctor review.
+              Group 3 is live on Render. One fundus upload runs diabetic-retinopathy severity, glaucoma CDR/risk, and hypertensive-retinopathy screening together, then routes the combined result into doctor review and a Retina report draft.
             </p>
           </div>
         </div>
@@ -978,7 +978,7 @@ export function RetinaModuleView() {
           </div>
         </Card>
         <Card>
-          <CardHeader title="Recent Retina Reports" subtitle="Report history will populate after the Retina backend is connected." />
+          <CardHeader title="Recent Retina Reports" subtitle="Draft, pending, and approved reports generated from fundus screening." />
           <ReportRows reports={retinaReports.slice(0, 5)} />
         </Card>
       </div>
