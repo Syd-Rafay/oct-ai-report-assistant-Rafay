@@ -1,5 +1,16 @@
 import type { BackendPrediction } from "./types";
 
+export type RetinaServiceSelection = {
+  dr: boolean;
+  glaucoma: boolean;
+  hr: boolean;
+};
+
+export type RetinaPredictionOptions = {
+  services?: RetinaServiceSelection;
+  imageQualityWarnings?: string[];
+};
+
 async function postImagePrediction(file: File, backendUrl: string | undefined, missingMessage: string, fieldName = "file"): Promise<BackendPrediction> {
   if (!backendUrl) {
     throw new Error(missingMessage);
@@ -130,34 +141,41 @@ function uniqueUrls(urls: Array<string | undefined>): string[] {
   );
 }
 
-export async function predictRetina(file: File): Promise<BackendPrediction> {
+export async function predictRetina(file: File, options: RetinaPredictionOptions = {}): Promise<BackendPrediction> {
+  const services = options.services ?? { dr: true, glaucoma: true, hr: true };
+  if (!services.dr && !services.glaucoma && !services.hr) {
+    throw new Error("Select at least one Retina screening model to run.");
+  }
   const combinedRetinaUrl = process.env.NEXT_PUBLIC_RETINA_BACKEND_URL?.replace(/\/$/, "");
   const retinaDrUrl = (process.env.NEXT_PUBLIC_RETINA_DR_BACKEND_URL || combinedRetinaUrl)?.replace(/\/$/, "");
   const retinaGlaucomaUrl = (process.env.NEXT_PUBLIC_RETINA_GLAUCOMA_BACKEND_URL || combinedRetinaUrl)?.replace(/\/$/, "");
   const retinaHrUrl = (process.env.NEXT_PUBLIC_RETINA_HR_BACKEND_URL || combinedRetinaUrl)?.replace(/\/$/, "");
-  if (!retinaDrUrl) {
+  if (services.dr && !retinaDrUrl) {
     throw new Error("Retina DR backend URL is missing. Add NEXT_PUBLIC_RETINA_DR_BACKEND_URL or NEXT_PUBLIC_RETINA_BACKEND_URL.");
   }
 
-  const dr = await postImageEndpoint(file, `${retinaDrUrl}/predict`, "Retina diabetic-retinopathy endpoint is missing.", "image").catch((error) => {
-    throw new Error(`Retina DR endpoint failed: ${error instanceof Error ? error.message : "unknown error"}`);
-  });
+  const dr = services.dr
+    ? await postImageEndpoint(file, `${retinaDrUrl}/predict`, "Retina diabetic-retinopathy endpoint is missing.", "image").catch((error) => {
+        throw new Error(`Retina DR endpoint failed: ${error instanceof Error ? error.message : "unknown error"}`);
+      })
+    : undefined;
   const [glaucomaResult, hypertensiveRetinopathyResult] = await Promise.allSettled([
-    retinaGlaucomaUrl
+    services.glaucoma && retinaGlaucomaUrl
       ? postImageEndpoint(file, `${retinaGlaucomaUrl}/predict-glaucoma`, "Retina glaucoma endpoint is missing.", "image")
-      : Promise.reject(new Error("NEXT_PUBLIC_RETINA_GLAUCOMA_BACKEND_URL is missing.")),
-    retinaHrUrl
+      : Promise.reject(new Error(services.glaucoma ? "NEXT_PUBLIC_RETINA_GLAUCOMA_BACKEND_URL is missing." : "Glaucoma not selected.")),
+    services.hr && retinaHrUrl
       ? postImageEndpoint(file, `${retinaHrUrl}/predict-hr`, "Retina hypertensive-retinopathy endpoint is missing.", "image")
-      : Promise.reject(new Error("NEXT_PUBLIC_RETINA_HR_BACKEND_URL is missing.")),
+      : Promise.reject(new Error(services.hr ? "NEXT_PUBLIC_RETINA_HR_BACKEND_URL is missing." : "Hypertensive retinopathy not selected.")),
   ]);
   const optionalWarnings = [
-    glaucomaResult.status === "rejected" ? `Glaucoma endpoint unavailable: ${glaucomaResult.reason instanceof Error ? glaucomaResult.reason.message : "unknown error"}` : "",
-    hypertensiveRetinopathyResult.status === "rejected" ? `Hypertensive-retinopathy endpoint unavailable: ${hypertensiveRetinopathyResult.reason instanceof Error ? hypertensiveRetinopathyResult.reason.message : "unknown error"}` : "",
+    services.glaucoma && glaucomaResult.status === "rejected" ? `Glaucoma endpoint unavailable: ${glaucomaResult.reason instanceof Error ? glaucomaResult.reason.message : "unknown error"}` : "",
+    services.hr && hypertensiveRetinopathyResult.status === "rejected" ? `Hypertensive-retinopathy endpoint unavailable: ${hypertensiveRetinopathyResult.reason instanceof Error ? hypertensiveRetinopathyResult.reason.message : "unknown error"}` : "",
+    ...(options.imageQualityWarnings ?? []),
   ].filter(Boolean);
-  const glaucoma = glaucomaResult.status === "fulfilled" ? glaucomaResult.value as RetinaGlaucomaPrediction : undefined;
-  const hypertensiveRetinopathy = hypertensiveRetinopathyResult.status === "fulfilled" ? hypertensiveRetinopathyResult.value as RetinaHrPrediction : undefined;
+  const glaucoma = services.glaucoma && glaucomaResult.status === "fulfilled" ? glaucomaResult.value as RetinaGlaucomaPrediction : undefined;
+  const hypertensiveRetinopathy = services.hr && hypertensiveRetinopathyResult.status === "fulfilled" ? hypertensiveRetinopathyResult.value as RetinaHrPrediction : undefined;
 
-  return normalizeRetinaPrediction(dr, glaucoma, hypertensiveRetinopathy, optionalWarnings);
+  return normalizeRetinaPrediction(dr, glaucoma, hypertensiveRetinopathy, optionalWarnings, services);
 }
 
 type RetinaGlaucomaPrediction = {
@@ -187,7 +205,7 @@ type RetinaHrPrediction = {
   note?: string;
 };
 
-function normalizeRetinaPrediction(prediction: BackendPrediction & {
+function normalizeRetinaPrediction(prediction: (BackendPrediction & {
   predicted_class?: number;
   severity_label?: string;
   scores?: Record<string, number> | number[];
@@ -195,13 +213,15 @@ function normalizeRetinaPrediction(prediction: BackendPrediction & {
   heatmap?: string | null;
   low_confidence?: boolean;
   confidence_warning?: string;
-}, glaucoma?: RetinaGlaucomaPrediction, hypertensiveRetinopathy?: RetinaHrPrediction, optionalWarnings: string[] = []): BackendPrediction {
+}) | undefined, glaucoma?: RetinaGlaucomaPrediction, hypertensiveRetinopathy?: RetinaHrPrediction, optionalWarnings: string[] = [], services: RetinaServiceSelection = { dr: true, glaucoma: true, hr: true }): BackendPrediction {
   const labels = ["NO_DR", "MILD_DR", "MODERATE_DR", "SEVERE_DR", "PROLIFERATIVE_DR"] as const;
-  const scoreValues = Array.isArray(prediction.scores)
-    ? prediction.scores
-    : labels.map((_, index) => Number((prediction.scores as Record<string, number> | undefined)?.[String(index)] ?? 0));
-  const predictedClass = labels[prediction.predicted_class ?? 0] ?? "NO_DR";
-  const confidence = Number(prediction.confidence ?? scoreValues[prediction.predicted_class ?? 0] ?? 0);
+  const scoreValues = prediction
+    ? Array.isArray(prediction.scores)
+      ? prediction.scores
+      : labels.map((_, index) => Number((prediction.scores as Record<string, number> | undefined)?.[String(index)] ?? 0))
+    : [0, 0, 0, 0, 0];
+  const predictedClass = prediction ? labels[prediction.predicted_class ?? 0] ?? "NO_DR" : "NO_DR";
+  const confidence = prediction ? Number(prediction.confidence ?? scoreValues[prediction.predicted_class ?? 0] ?? 0) : 0;
   const glaucomaRisk = glaucoma?.risk_level ?? glaucoma?.risk_label ?? (glaucoma?.predicted_class ? glaucoma.predicted_class : undefined);
   const glaucomaDetail = glaucoma?.risk_detail ?? glaucoma?.referral_recommendation ?? "";
   const glaucomaDiscPixels = glaucoma?.disc_pixels ?? glaucoma?.metrics?.disc_pixels ?? glaucoma?.metrics?.disc_area;
@@ -212,19 +232,20 @@ function normalizeRetinaPrediction(prediction: BackendPrediction & {
   const hrSummary = hypertensiveRetinopathy
     ? `Hypertensive retinopathy: ${hypertensiveRetinopathy.risk_level ?? (hypertensiveRetinopathy.hr_detected ? "Detected" : "Not detected")}${typeof hypertensiveRetinopathy.probability === "number" ? `, probability ${Math.round(hypertensiveRetinopathy.probability * 100)}%` : ""}`
     : "Hypertensive retinopathy: not run";
-  const drSummary = `Diabetic retinopathy: ${prediction.severity_label ?? predictedClass}`;
+  const drSummary = services.dr ? `Diabetic retinopathy: ${prediction?.severity_label ?? predictedClass}` : "Diabetic retinopathy: not run";
   const warnings = [
-    ...(prediction.validation_warnings ?? []),
-    confidence < 0.7 ? "Low-confidence DR classification. Treat the top class as provisional and review the probability spread." : "",
-    prediction.low_confidence ? prediction.confidence_warning ?? "Low-confidence model output." : "",
+    ...(prediction?.validation_warnings ?? []),
+    services.dr && confidence > 0 && confidence < 0.7 ? "Low-confidence DR classification. Treat the top class as provisional and review the probability spread." : "",
+    prediction?.low_confidence ? prediction.confidence_warning ?? "Low-confidence model output." : "",
     ...optionalWarnings
   ].filter(Boolean);
   const retinaDetails = {
-    dr: {
+    selected: services,
+    dr: services.dr ? {
       class: predictedClass,
       confidence,
-      low_confidence: confidence < 0.7 || Boolean(prediction.low_confidence),
-      referral: prediction.referral ?? "",
+      low_confidence: confidence < 0.7 || Boolean(prediction?.low_confidence),
+      referral: prediction?.referral ?? "",
       probabilities: {
         NO_DR: scoreValues[0] ?? 0,
         MILD_DR: scoreValues[1] ?? 0,
@@ -232,7 +253,7 @@ function normalizeRetinaPrediction(prediction: BackendPrediction & {
         SEVERE_DR: scoreValues[3] ?? 0,
         PROLIFERATIVE_DR: scoreValues[4] ?? 0,
       },
-    },
+    } : null,
     glaucoma: glaucoma ? {
       risk: glaucomaRisk ?? "",
       cdr: glaucoma.cdr ?? "",
@@ -252,7 +273,7 @@ function normalizeRetinaPrediction(prediction: BackendPrediction & {
   };
 
   return {
-    ...prediction,
+    ...(prediction ?? {}),
     prediction: predictedClass,
     confidence,
     probabilities: {
@@ -264,7 +285,7 @@ function normalizeRetinaPrediction(prediction: BackendPrediction & {
     },
     is_valid_oct: true,
     quality_metrics: {
-      ...(prediction.quality_metrics ?? {}),
+      ...(prediction?.quality_metrics ?? {}),
       glaucoma_cdr: glaucoma?.cdr ?? "",
       glaucoma_risk: glaucomaRisk ?? "",
       glaucoma_detail: glaucomaDetail,
@@ -277,10 +298,10 @@ function normalizeRetinaPrediction(prediction: BackendPrediction & {
     model_name: "Retina Combined Screening Model",
     model_version: [`retina-details:${JSON.stringify(retinaDetails)}`, drSummary, glaucomaSummary, hrSummary].join(" | "),
     validation_warnings: warnings,
-    gradcam_overlay_base64: prediction.heatmap ?? prediction.gradcam_overlay_base64,
+    gradcam_overlay_base64: prediction?.heatmap ?? prediction?.gradcam_overlay_base64,
     disclaimer:
-      prediction.disclaimer ||
-      [drSummary, prediction.referral, glaucomaSummary, glaucomaDetail, hrSummary, hypertensiveRetinopathy?.recommendation, prediction.confidence_warning, ...optionalWarnings]
+      prediction?.disclaimer ||
+      [drSummary, prediction?.referral, glaucomaSummary, glaucomaDetail, hrSummary, hypertensiveRetinopathy?.recommendation, prediction?.confidence_warning, ...optionalWarnings]
         .filter(Boolean)
         .join(" | ") ||
       "Fundus AI screening output. Requires clinician review.",

@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { PageTitle } from "./app-shell";
 import { Button, Card, CardHeader, EmptyState, SafetyNotice, StatusBadge } from "./ui";
-import { predictOCTWithGradcam, predictRetina, predictVKG } from "@/lib/ai-api";
+import { predictOCTWithGradcam, predictRetina, predictVKG, type RetinaServiceSelection } from "@/lib/ai-api";
 import { useDemoStore } from "@/lib/demo-store";
 import { addFeedbackResponse, getCachedFeedbackEntries, getFeedbackEntries, submitFeedback, updateFeedbackStatus } from "@/lib/feedback";
 import { prepareScanImages } from "@/lib/image-processing";
@@ -44,12 +44,14 @@ const MIN_PATIENT_AGE = 0;
 const MAX_PATIENT_AGE = 130;
 
 type RetinaDetails = {
+  selected?: RetinaServiceSelection;
   dr?: {
     class?: string;
     confidence?: number;
     low_confidence?: boolean;
     referral?: string;
-  };
+    probabilities?: Partial<Record<ClinicalClass, number>>;
+  } | null;
   glaucoma?: {
     risk?: string;
     cdr?: number | string;
@@ -89,47 +91,169 @@ function formatMaybePercent(value: number | string | undefined) {
   return `${Math.round(value * 100)}%`;
 }
 
-function RetinaResultDetails({ aiResult }: { aiResult: AiResult }) {
+function RetinaServiceSelector({
+  value,
+  onChange,
+  disabled
+}: {
+  value: RetinaServiceSelection;
+  onChange: (value: RetinaServiceSelection) => void;
+  disabled?: boolean;
+}) {
+  const items: Array<[keyof RetinaServiceSelection, string]> = [
+    ["dr", "DR Severity"],
+    ["glaucoma", "Glaucoma CDR"],
+    ["hr", "Hypertensive Retinopathy"],
+  ];
+  const setItem = (key: keyof RetinaServiceSelection, checked: boolean) => {
+    const next = { ...value, [key]: checked };
+    onChange(next);
+  };
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-500">Run Retina Models</p>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange({ dr: true, glaucoma: true, hr: true })}
+          className="text-xs font-black text-clinic-700 disabled:opacity-50"
+        >
+          Select all
+        </button>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        {items.map(([key, label]) => (
+          <label key={key} className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800">
+            <input
+              type="checkbox"
+              checked={value[key]}
+              disabled={disabled}
+              onChange={(event) => setItem(key, event.target.checked)}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RetinaResultDetails({ aiResult, activeTab, onTabChange }: { aiResult: AiResult; activeTab: "summary" | "dr" | "glaucoma" | "hr"; onTabChange: (tab: "summary" | "dr" | "glaucoma" | "hr") => void }) {
   const { details } = parseRetinaModelVersion(aiResult.modelVersion);
   if (!details) return null;
   const glaucoma = details.glaucoma;
   const hr = details.hypertensive_retinopathy;
   const hrDetected = hr?.detected === true || hr?.detected === "true";
+  const dr = details.dr;
+  const selectedCount = Object.values(details.selected ?? { dr: true, glaucoma: true, hr: true }).filter(Boolean).length;
+  const headline =
+    hrDetected ? "Hypertensive retinopathy flagged"
+      : glaucoma?.risk && !/not run/i.test(glaucoma.risk) ? glaucoma.risk
+      : dr?.class ? dr.class
+      : "Retina screening complete";
+  const tabs: Array<["summary" | "dr" | "glaucoma" | "hr", string, boolean]> = [
+    ["summary", "Combined Summary", true],
+    ["dr", "DR Severity", Boolean(details.selected?.dr ?? dr)],
+    ["glaucoma", "Glaucoma CDR", Boolean(details.selected?.glaucoma ?? glaucoma)],
+    ["hr", "Hypertensive Retinopathy", Boolean(details.selected?.hr ?? hr)],
+  ];
 
   return (
-    <div className="grid gap-3">
-      {details.warnings?.length ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-          {details.warnings.join(" ")}
-        </div>
-      ) : null}
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Diabetic Retinopathy</p>
-          <p className="mt-2 text-lg font-black text-slate-950">{details.dr?.class ?? aiResult.predictedClass}</p>
-          <p className="text-sm font-semibold text-slate-600">Confidence {formatMaybePercent(details.dr?.confidence ?? aiResult.confidence)}</p>
-          {details.dr?.low_confidence ? <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs font-bold text-amber-800">Low confidence. Doctor review required.</p> : null}
-          {details.dr?.referral ? <p className="mt-2 text-xs leading-relaxed text-slate-500">{details.dr.referral}</p> : null}
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Glaucoma</p>
-          <p className="mt-2 text-lg font-black text-slate-950">{glaucoma?.risk || "Not run"}</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-xs font-semibold text-slate-600">
-            <span>CDR: {typeof glaucoma?.cdr === "number" ? glaucoma.cdr.toFixed(3) : glaucoma?.cdr || "N/A"}</span>
-            <span>Confidence: {formatMaybePercent(typeof glaucoma?.confidence === "number" ? glaucoma.confidence : undefined)}</span>
-            <span>Disc: {glaucoma?.disc_pixels || "N/A"}</span>
-            <span>Cup: {glaucoma?.cup_pixels || "N/A"}</span>
+    <div className="space-y-4">
+      <div className="rounded-xl border border-clinic-100 bg-clinic-50/70 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-clinic-700">Combined Retina Summary</p>
+            <p className="mt-1 text-2xl font-black text-slate-950">{headline}</p>
+            <p className="mt-1 text-sm font-semibold text-slate-600">{selectedCount} selected model{selectedCount === 1 ? "" : "s"} completed or attempted.</p>
           </div>
-          {glaucoma?.detail ? <p className="mt-2 text-xs leading-relaxed text-slate-500">{glaucoma.detail}</p> : null}
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Hypertensive Retinopathy</p>
-          <p className={`mt-2 text-lg font-black ${hrDetected ? "text-red-700" : "text-slate-950"}`}>{hr?.risk || (hr ? "No HR Detected" : "Not run")}</p>
-          <p className="text-sm font-semibold text-slate-600">Probability {formatMaybePercent(typeof hr?.probability === "number" ? hr.probability : undefined)}</p>
-          <p className="text-xs font-semibold text-slate-500">Screening threshold {formatMaybePercent(hr?.threshold ?? 0.2)}</p>
-          {hr?.recommendation ? <p className="mt-2 text-xs leading-relaxed text-slate-500">{hr.recommendation}</p> : null}
+          {details.warnings?.length ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800">Review flag</span> : null}
         </div>
       </div>
+      <div className="flex flex-wrap gap-2">
+        {tabs.map(([tab, label, enabled]) => (
+          <button
+            key={tab}
+            type="button"
+            disabled={!enabled}
+            onClick={() => onTabChange(tab)}
+            className={`rounded-md border px-3 py-2 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-40 ${
+              activeTab === tab ? "border-clinic-500 bg-clinic-50 text-clinic-800" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {activeTab === "summary" ? (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MiniRetinaMetric label="DR" value={dr?.class ?? "Not run"} sub={dr ? `Confidence ${formatMaybePercent(dr.confidence ?? aiResult.confidence)}` : "Not selected"} />
+          <MiniRetinaMetric label="Glaucoma" value={glaucoma?.risk || "Not run"} sub={glaucoma ? `CDR ${typeof glaucoma.cdr === "number" ? glaucoma.cdr.toFixed(3) : glaucoma.cdr || "N/A"}` : "Not selected"} />
+          <MiniRetinaMetric label="HR" value={hr?.risk || (hr ? "No HR Detected" : "Not run")} sub={hr ? `Probability ${formatMaybePercent(typeof hr.probability === "number" ? hr.probability : undefined)}` : "Not selected"} danger={hrDetected} />
+        </div>
+      ) : null}
+      {activeTab === "dr" ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Diabetic Retinopathy</p>
+              <p className="mt-1 text-2xl font-black text-slate-950">{dr?.class ?? "Not run"}</p>
+              <p className="text-sm font-semibold text-slate-600">Confidence {formatMaybePercent(dr?.confidence ?? aiResult.confidence)}</p>
+            </div>
+            {dr?.low_confidence ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800">Low confidence</span> : null}
+          </div>
+          {dr?.referral ? <p className="mt-3 text-sm leading-relaxed text-slate-600">{dr.referral}</p> : null}
+          <div className="mt-4 space-y-3">
+            {retinaClasses.map((item) => (
+              <Probability key={item} label={item} value={dr?.probabilities?.[item] ?? aiResult.probabilities[item] ?? 0} active={item === dr?.class} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {activeTab === "glaucoma" ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Glaucoma CDR Screening</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{glaucoma?.risk || "Not run"}</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-4">
+            <Info label="CDR" value={typeof glaucoma?.cdr === "number" ? glaucoma.cdr.toFixed(3) : glaucoma?.cdr ? String(glaucoma.cdr) : "N/A"} />
+            <Info label="Confidence" value={formatMaybePercent(typeof glaucoma?.confidence === "number" ? glaucoma.confidence : undefined)} />
+            <Info label="Disc pixels" value={glaucoma?.disc_pixels ? String(glaucoma.disc_pixels) : "N/A"} />
+            <Info label="Cup pixels" value={glaucoma?.cup_pixels ? String(glaucoma.cup_pixels) : "N/A"} />
+          </div>
+          {glaucoma?.detail ? <p className="mt-3 text-sm leading-relaxed text-slate-600">{glaucoma.detail}</p> : null}
+        </div>
+      ) : null}
+      {activeTab === "hr" ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Hypertensive Retinopathy</p>
+          <p className={`mt-1 text-2xl font-black ${hrDetected ? "text-red-700" : "text-slate-950"}`}>{hr?.risk || (hr ? "No HR Detected" : "Not run")}</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <Info label="Probability" value={formatMaybePercent(typeof hr?.probability === "number" ? hr.probability : undefined)} />
+            <Info label="Threshold" value={formatMaybePercent(hr?.threshold ?? 0.2)} />
+            <Info label="Detected" value={hrDetected ? "Yes" : hr ? "No" : "N/A"} />
+          </div>
+          {hr?.recommendation ? <p className="mt-3 text-sm leading-relaxed text-slate-600">{hr.recommendation}</p> : null}
+        </div>
+      ) : null}
+      <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <summary className="cursor-pointer text-sm font-black text-slate-800">Advanced details, warnings, Grad-CAM status</summary>
+        <div className="mt-3 space-y-2 text-xs font-semibold leading-relaxed text-slate-600">
+          {details.warnings?.length ? <p>{details.warnings.join(" ")}</p> : <p>No extra quality warnings recorded.</p>}
+          <p>Grad-CAM: {aiResult.heatmapUrl ? "Available for this analysis." : "Not returned by the deployed DR service for this run."}</p>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function MiniRetinaMetric({ label, value, sub, danger }: { label: string; value: string; sub: string; danger?: boolean }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`mt-1 text-lg font-black ${danger ? "text-red-700" : "text-slate-950"}`}>{value}</p>
+      <p className="text-xs font-semibold text-slate-500">{sub}</p>
     </div>
   );
 }
@@ -1752,6 +1876,7 @@ export function UploadScanView() {
   const [analysisWarning, setAnalysisWarning] = useState("");
   const [fileNote, setFileNote] = useState("");
   const [loading, setLoading] = useState(false);
+  const [retinaServices, setRetinaServices] = useState<RetinaServiceSelection>({ dr: true, glaucoma: true, hr: true });
 
   const onFile = async (file?: File) => {
     if (!file) return;
@@ -1794,7 +1919,12 @@ export function UploadScanView() {
       if (moduleId === "corneal") {
         throw new Error(`${moduleLabel} AI backend is not connected yet. Use this module workspace for patient setup and deployment tracking until its Render service is live.`);
       }
-      const prediction = moduleId === "retina" ? await predictRetina(predictionFile) : moduleId === "vkg" ? await predictVKG(predictionFile) : await predictOCTWithGradcam(predictionFile);
+      const preparedAgain = await prepareScanImages(predictionFile);
+      const prediction = moduleId === "retina"
+        ? await predictRetina(preparedAgain.predictionFile, { services: retinaServices, imageQualityWarnings: preparedAgain.quality.warnings })
+        : moduleId === "vkg"
+          ? await predictVKG(predictionFile)
+          : await predictOCTWithGradcam(predictionFile);
       if (!prediction.is_valid_oct) {
         const message =
           prediction.prediction === "INVALID_IMAGE"
@@ -1831,6 +1961,7 @@ export function UploadScanView() {
             <SelectField label="Eye side" value={eyeSide} options={["Left", "Right", "Both", "Unknown"]} onChange={(value) => setEyeSide(value as EyeSide)} />
           </div>
           <Textarea label="Scan notes" value={scanNotes} onChange={setScanNotes} />
+          {moduleId === "retina" ? <div className="mt-4"><RetinaServiceSelector value={retinaServices} onChange={setRetinaServices} disabled={loading} /></div> : null}
           <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center hover:border-clinic-300">
             <Upload className="text-clinic-600" size={28} />
             <span className="mt-3 font-bold text-slate-900">Upload {moduleLabel} image</span>
@@ -1868,6 +1999,8 @@ export function AnalysisView({ id }: { id: string }) {
   const [analysisError, setAnalysisError] = useState("");
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [scanActionLoading, setScanActionLoading] = useState(false);
+  const [retinaServices, setRetinaServices] = useState<RetinaServiceSelection>({ dr: true, glaucoma: true, hr: true });
+  const [retinaTab, setRetinaTab] = useState<"summary" | "dr" | "glaucoma" | "hr">("summary");
   const scan = store.data.scans.find((item) => item.id === id);
   if (!scan) return <Missing title="Scan not found" href="/dashboard" label="Back to dashboard" />;
   const patient = store.data.patients.find((item) => item.id === scan.patientId);
@@ -1886,7 +2019,11 @@ export function AnalysisView({ id }: { id: string }) {
       const blob = await response.blob();
       const file = new File([blob], `${scan.id}.jpg`, { type: blob.type || "image/jpeg" });
       const prepared = await prepareScanImages(file);
-      const prediction = scan.moduleId === "retina" ? await predictRetina(prepared.predictionFile) : scan.moduleId === "vkg" ? await predictVKG(prepared.predictionFile) : await predictOCTWithGradcam(prepared.predictionFile);
+      const prediction = scan.moduleId === "retina"
+        ? await predictRetina(prepared.predictionFile, { services: retinaServices, imageQualityWarnings: prepared.quality.warnings })
+        : scan.moduleId === "vkg"
+          ? await predictVKG(prepared.predictionFile)
+          : await predictOCTWithGradcam(prepared.predictionFile);
       const result = await store.saveBackendAnalysis(scan, prediction);
       return result;
     } catch (err) {
@@ -1957,7 +2094,7 @@ export function AnalysisView({ id }: { id: string }) {
           </Button>
         }
       />
-      <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
+      <div className="grid gap-5 lg:grid-cols-[minmax(360px,.95fr)_minmax(560px,1.05fr)]">
         <Card className="p-5">
           <img src={scan.imageUrl} alt="OCT scan" className="aspect-[4/3] w-full rounded-md bg-slate-900 object-cover" />
           <ScanImageActions
@@ -1978,18 +2115,23 @@ export function AnalysisView({ id }: { id: string }) {
           {analysisError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{analysisError}</p> : null}
           {aiResult ? (
             <div className="mt-5 space-y-5">
-              <div className="rounded-lg bg-slate-50 p-4">
-                <p className="text-sm font-semibold text-slate-500">AI Prediction</p>
-                <p className="mt-1 text-4xl font-black text-clinic-700">{aiResult.predictedClass}</p>
-                <p className="mt-1 text-sm text-slate-500">Confidence {Math.round(aiResult.confidence * 100)}%</p>
-              </div>
-              <div className="space-y-3">
-                {analysisClasses.map((item) => (
-                  <Probability key={item} label={item} value={aiResult.probabilities[item] ?? 0} active={item === aiResult.predictedClass} />
-                ))}
-              </div>
-              {scan.moduleId === "retina" ? <RetinaResultDetails aiResult={aiResult} /> : null}
-              {aiResult.heatmapUrl ? (
+              {scan.moduleId === "retina" ? (
+                <RetinaResultDetails aiResult={aiResult} activeTab={retinaTab} onTabChange={setRetinaTab} />
+              ) : (
+                <>
+                  <div className="rounded-lg bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-500">AI Prediction</p>
+                    <p className="mt-1 text-4xl font-black text-clinic-700">{aiResult.predictedClass}</p>
+                    <p className="mt-1 text-sm text-slate-500">Confidence {Math.round(aiResult.confidence * 100)}%</p>
+                  </div>
+                  <div className="space-y-3">
+                    {analysisClasses.map((item) => (
+                      <Probability key={item} label={item} value={aiResult.probabilities[item] ?? 0} active={item === aiResult.predictedClass} />
+                    ))}
+                  </div>
+                </>
+              )}
+              {aiResult.heatmapUrl && scan.moduleId !== "retina" ? (
                 <div className="rounded-md border border-slate-200 bg-white p-3">
                   <p className="text-sm font-black text-slate-950">Grad-CAM attention heatmap</p>
                   <img src={aiResult.heatmapUrl} alt="Grad-CAM heatmap overlay" className="mt-3 aspect-[4/3] w-full rounded-md bg-slate-900 object-cover" />
@@ -1997,16 +2139,10 @@ export function AnalysisView({ id }: { id: string }) {
                     Highlighted regions influenced the AI classification. This is not a segmentation map or measurement.
                   </p>
                 </div>
-              ) : scan.moduleId === "retina" ? (
-                <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3">
-                  <p className="text-sm font-black text-slate-950">Grad-CAM attention heatmap</p>
-                  <p className="mt-2 text-xs font-medium leading-relaxed text-slate-500">
-                    DR Grad-CAM was not returned by the deployed DR service for this run. The original Group 3 Grad-CAM worker is preserved locally, but it should be deployed only after we can host the PyTorch worker without hurting speed or reliability.
-                  </p>
-                </div>
               ) : null}
               <CleanModelVersion aiResult={aiResult} />
               <Info label="Timestamp" value={new Date(aiResult.createdAt).toLocaleString()} />
+              {scan.moduleId === "retina" ? <RetinaServiceSelector value={retinaServices} onChange={setRetinaServices} disabled={analysisLoading} /> : null}
               <div className="grid gap-2 sm:flex">
                 <Button className="w-full sm:w-auto" variant="secondary" onClick={analyzeScan} disabled={analysisLoading}>
                   {analysisLoading ? <Loader2 className="animate-spin" size={16} /> : <RotateCcw size={16} />}
