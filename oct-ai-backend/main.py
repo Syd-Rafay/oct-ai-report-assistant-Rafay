@@ -85,6 +85,37 @@ def build_model() -> torch.nn.Module:
     return model
 
 
+def jet_colorize_heatmap(heatmap_array: np.ndarray) -> np.ndarray:
+    """Approximate OpenCV COLORMAP_JET without adding an OpenCV dependency."""
+    x = np.clip(heatmap_array, 0.0, 1.0)
+    red = np.clip(1.5 - np.abs(4.0 * x - 3.0), 0.0, 1.0)
+    green = np.clip(1.5 - np.abs(4.0 * x - 2.0), 0.0, 1.0)
+    blue = np.clip(1.5 - np.abs(4.0 * x - 1.0), 0.0, 1.0)
+    return np.stack([red, green, blue], axis=-1) * 255.0
+
+
+def gradcam_overlay_png_data_url(image: Image.Image, heatmap: np.ndarray) -> str:
+    overlay_image = image.convert("RGB")
+    longest_side = max(overlay_image.size)
+    if longest_side > MAX_GRADCAM_DIMENSION:
+        ratio = MAX_GRADCAM_DIMENSION / longest_side
+        overlay_image = overlay_image.resize(
+            (max(1, round(overlay_image.width * ratio)), max(1, round(overlay_image.height * ratio))),
+            Image.Resampling.LANCZOS,
+        )
+
+    heatmap_image = Image.fromarray(np.uint8(heatmap * 255), mode="L").resize(overlay_image.size, Image.Resampling.BICUBIC)
+    heatmap_array = np.array(heatmap_image).astype(float) / 255.0
+    base = np.array(overlay_image).astype(float)
+    color = jet_colorize_heatmap(heatmap_array)
+    overlay = np.uint8(np.clip(color * 0.4 + base * 0.6, 0, 255))
+
+    output = BytesIO()
+    Image.fromarray(overlay).save(output, format="PNG")
+    encoded = base64.b64encode(output.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
 def gradcam_overlay_base64(image: Image.Image, image_tensor: torch.Tensor, class_index: int) -> str | None:
     if model is None or not ENABLE_GRADCAM:
         return None
@@ -120,29 +151,7 @@ def gradcam_overlay_base64(image: Image.Image, image_tensor: torch.Tensor, class
         if float(heatmap_max) <= 0:
             return None
 
-        heatmap = (heatmap / heatmap_max).cpu().numpy()
-        overlay_image = image.convert("RGB")
-        longest_side = max(overlay_image.size)
-        if longest_side > MAX_GRADCAM_DIMENSION:
-            ratio = MAX_GRADCAM_DIMENSION / longest_side
-            overlay_image = overlay_image.resize(
-                (max(1, round(overlay_image.width * ratio)), max(1, round(overlay_image.height * ratio))),
-                Image.Resampling.LANCZOS,
-            )
-        heatmap_image = Image.fromarray(np.uint8(heatmap * 255), mode="L").resize(overlay_image.size, Image.Resampling.BICUBIC)
-        heatmap_array = np.array(heatmap_image).astype(float) / 255.0
-
-        base = np.array(overlay_image).astype(float)
-        color = np.zeros_like(base)
-        color[:, :, 0] = 255
-        color[:, :, 1] = np.clip(heatmap_array * 220, 0, 220)
-        alpha = (0.15 + 0.45 * heatmap_array)[..., None]
-        overlay = np.uint8(np.clip(base * (1 - alpha) + color * alpha, 0, 255))
-
-        output = BytesIO()
-        Image.fromarray(overlay).save(output, format="PNG")
-        encoded = base64.b64encode(output.getvalue()).decode("ascii")
-        return f"data:image/png;base64,{encoded}"
+        return gradcam_overlay_png_data_url(image, (heatmap / heatmap_max).cpu().numpy())
     except Exception:
         return None
     finally:
@@ -215,29 +224,7 @@ def gradcam_prediction_and_overlay(image: Image.Image, image_tensor: torch.Tenso
         if float(heatmap_max) <= 0:
             return probabilities, prediction, confidence, None
 
-        heatmap = (heatmap / heatmap_max).cpu().numpy()
-        overlay_image = image.convert("RGB")
-        longest_side = max(overlay_image.size)
-        if longest_side > MAX_GRADCAM_DIMENSION:
-            ratio = MAX_GRADCAM_DIMENSION / longest_side
-            overlay_image = overlay_image.resize(
-                (max(1, round(overlay_image.width * ratio)), max(1, round(overlay_image.height * ratio))),
-                Image.Resampling.LANCZOS,
-            )
-        heatmap_image = Image.fromarray(np.uint8(heatmap * 255), mode="L").resize(overlay_image.size, Image.Resampling.BICUBIC)
-        heatmap_array = np.array(heatmap_image).astype(float) / 255.0
-
-        base = np.array(overlay_image).astype(float)
-        color = np.zeros_like(base)
-        color[:, :, 0] = 255
-        color[:, :, 1] = np.clip(heatmap_array * 220, 0, 220)
-        alpha = (0.15 + 0.45 * heatmap_array)[..., None]
-        overlay = np.uint8(np.clip(base * (1 - alpha) + color * alpha, 0, 255))
-
-        output = BytesIO()
-        Image.fromarray(overlay).save(output, format="PNG")
-        encoded = base64.b64encode(output.getvalue()).decode("ascii")
-        return probabilities, prediction, confidence, f"data:image/png;base64,{encoded}"
+        return probabilities, prediction, confidence, gradcam_overlay_png_data_url(image, (heatmap / heatmap_max).cpu().numpy())
     except Exception:
         return probabilities, prediction, confidence, None
     finally:
