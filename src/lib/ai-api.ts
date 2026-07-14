@@ -151,11 +151,7 @@ export async function predictRetina(file: File, options: RetinaPredictionOptions
   }
   const combinedRetinaUrl = process.env.NEXT_PUBLIC_RETINA_BACKEND_URL?.replace(/\/$/, "");
   const retinaDrUrl = (process.env.NEXT_PUBLIC_RETINA_DR_BACKEND_URL || combinedRetinaUrl)?.replace(/\/$/, "");
-  const retinaDrGradcamUrl = (
-    process.env.NEXT_PUBLIC_RETINA_DR_GRADCAM_BACKEND_URL ||
-    process.env.NEXT_PUBLIC_RETINA_GRADCAM_BACKEND_URL ||
-    ""
-  ).replace(/\/$/, "");
+  const retinaDrGradcamEndpoint = "/api/retina/dr-gradcam";
   const retinaGlaucomaUrl = (process.env.NEXT_PUBLIC_RETINA_GLAUCOMA_BACKEND_URL || combinedRetinaUrl)?.replace(/\/$/, "");
   const retinaHrUrl = (process.env.NEXT_PUBLIC_RETINA_HR_BACKEND_URL || combinedRetinaUrl)?.replace(/\/$/, "");
   if (services.dr && !retinaDrUrl) {
@@ -168,9 +164,9 @@ export async function predictRetina(file: File, options: RetinaPredictionOptions
       })
     : undefined;
   const [drGradcamResult, glaucomaResult, hypertensiveRetinopathyResult] = await Promise.allSettled([
-    services.dr && retinaDrGradcamUrl
-      ? postImageEndpoint(file, `${retinaDrGradcamUrl}/gradcam`, "Retina DR Grad-CAM endpoint is missing.", "image")
-      : Promise.reject(new Error(services.dr ? "NEXT_PUBLIC_RETINA_DR_GRADCAM_BACKEND_URL is missing." : "DR not selected.")),
+    services.dr
+      ? postImageEndpoint(file, retinaDrGradcamEndpoint, "Retina DR Grad-CAM endpoint is missing.", "image")
+      : Promise.reject(new Error("DR not selected.")),
     services.glaucoma && retinaGlaucomaUrl
       ? postImageEndpoint(file, `${retinaGlaucomaUrl}/predict-glaucoma`, "Retina glaucoma endpoint is missing.", "image")
       : Promise.reject(new Error(services.glaucoma ? "NEXT_PUBLIC_RETINA_GLAUCOMA_BACKEND_URL is missing." : "Glaucoma not selected.")),
@@ -186,11 +182,15 @@ export async function predictRetina(file: File, options: RetinaPredictionOptions
   ].filter(Boolean);
   const glaucoma = services.glaucoma && glaucomaResult.status === "fulfilled" ? glaucomaResult.value as RetinaGlaucomaPrediction : undefined;
   const hypertensiveRetinopathy = services.hr && hypertensiveRetinopathyResult.status === "fulfilled" ? hypertensiveRetinopathyResult.value as RetinaHrPrediction : undefined;
+  const gradcamPayload = drGradcamResult.status === "fulfilled"
+    ? drGradcamResult.value as { heatmap?: string | null; heatmap_base64?: string | null; overlay?: string | null; gradcam_overlay_base64?: string | null }
+    : undefined;
+  const gradcamImage = gradcamPayload?.heatmap ?? gradcamPayload?.gradcam_overlay_base64 ?? gradcamPayload?.heatmap_base64 ?? gradcamPayload?.overlay;
   const drWithHeatmap = dr && drGradcamResult.status === "fulfilled"
     ? {
         ...dr,
-        heatmap: (dr as { heatmap?: string | null }).heatmap ?? (drGradcamResult.value as { heatmap?: string | null; gradcam_overlay_base64?: string | null }).heatmap,
-        gradcam_overlay_base64: dr.gradcam_overlay_base64 ?? (drGradcamResult.value as { heatmap?: string | null; gradcam_overlay_base64?: string | null }).gradcam_overlay_base64
+        heatmap: (dr as { heatmap?: string | null }).heatmap ?? gradcamImage,
+        gradcam_overlay_base64: dr.gradcam_overlay_base64 ?? gradcamImage
       }
     : dr;
 

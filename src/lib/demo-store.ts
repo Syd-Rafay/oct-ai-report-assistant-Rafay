@@ -408,6 +408,11 @@ function normalizeImageDataUrl(value?: string | null) {
   return `data:image/png;base64,${value}`;
 }
 
+function predictionHeatmapDataUrl(prediction: BackendPrediction) {
+  const heatmap = prediction.gradcam_overlay_base64 ?? (prediction as BackendPrediction & { heatmap?: string | null }).heatmap;
+  return normalizeImageDataUrl(heatmap);
+}
+
 function octScansPublicPath(url?: string) {
   if (!url) return undefined;
   const marker = "/storage/v1/object/public/oct-scans/";
@@ -1296,10 +1301,10 @@ export function useDemoStore() {
         if (oldHeatmapPaths.length) {
           await supabase.storage.from("oct-scans").remove(oldHeatmapPaths);
         }
-        let heatmapUrl: string | null = null;
-        if (prediction.gradcam_overlay_base64) {
+        let heatmapUrl: string | null = predictionHeatmapDataUrl(prediction) ?? null;
+        if (heatmapUrl) {
           const heatmapPath = `${scanStoragePrefix(scan.clinicId ?? patient?.clinicId ?? currentUser.clinicId, scan.moduleId ?? "oct", scan.patientId)}/heatmaps/${scan.id}-${crypto.randomUUID()}.png`;
-          const upload = await supabase.storage.from("oct-scans").upload(heatmapPath, dataUrlToBlob(prediction.gradcam_overlay_base64), {
+          const upload = await supabase.storage.from("oct-scans").upload(heatmapPath, dataUrlToBlob(heatmapUrl), {
             contentType: "image/png",
             upsert: false
           });
@@ -1342,7 +1347,7 @@ export function useDemoStore() {
         probabilities,
         modelName: prediction.model_name,
         modelVersion: prediction.model_version,
-        heatmapUrl: normalizeImageDataUrl(prediction.gradcam_overlay_base64),
+        heatmapUrl: predictionHeatmapDataUrl(prediction),
         moduleId: scan.moduleId ?? "oct",
         isDummyResult: false,
         createdAt: now()
