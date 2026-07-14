@@ -513,21 +513,21 @@ export function LoginView() {
 
   return (
     <main className="grid min-h-screen bg-slate-50 lg:grid-cols-[1fr_520px]">
-      <section className="hidden min-h-screen bg-[linear-gradient(135deg,#0f6170,#2563eb)] px-14 py-16 text-white lg:flex lg:flex-col lg:justify-between">
-        <div>
+      <section className="hidden min-h-screen bg-[linear-gradient(135deg,#0f6170,#2563eb)] px-14 py-16 text-white lg:flex lg:flex-col lg:justify-center">
+        <div className="max-w-4xl">
           <p className="mb-8 text-sm font-bold uppercase tracking-[0.18em] text-white/70">AFIO Clinical Platform</p>
           <h1 className="max-w-xl text-4xl font-black leading-tight">Clinical workflow system for ophthalmology.</h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-white/82">
             Open licensed diagnostic modules, keep department records separated, and route each report through doctor review.
           </p>
-        </div>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          {["Licensed modules", "Separate departments", "Doctor review", "Approved reports"].map((item) => (
-            <div key={item} className="rounded-lg border border-white/14 bg-white/10 p-4 font-bold backdrop-blur">{item}</div>
-          ))}
+          <div className="mt-16 grid max-w-3xl grid-cols-2 gap-3 text-sm">
+            {["Licensed modules", "Separate departments", "Doctor review", "Approved reports"].map((item) => (
+              <div key={item} className="rounded-lg border border-white/14 bg-white/10 p-4 font-bold backdrop-blur">{item}</div>
+            ))}
+          </div>
         </div>
       </section>
-      <section className={`flex justify-center px-5 py-6 ${authMode === "signup" ? "items-start lg:overflow-y-auto" : "items-center"}`}>
+      <section className={`flex justify-center px-5 py-6 ${authMode === "signup" ? "items-start" : "items-center"}`}>
         <Card className="w-full max-w-md p-6">
           <div className="mb-6 flex items-start justify-between gap-4">
             <div>
