@@ -1649,10 +1649,18 @@ export function useDemoStore() {
           .select("*, clinic_modules(module_id,is_enabled)")
           .single();
         if (error) throw new Error(error.message);
+        const { error: profileClinicNameError } = await supabase
+          .from("profiles")
+          .update({ clinic_name: input.name.trim() })
+          .eq("clinic_id", hospitalId);
+        if (profileClinicNameError) throw new Error(profileClinicNameError.message);
         const saved = mapHospital(row as DbHospital);
         setData((current) => ({
           ...current,
-          hospitals: current.hospitals.map((hospital) => (hospital.id === hospitalId ? saved : hospital))
+          hospitals: current.hospitals.map((hospital) => (hospital.id === hospitalId ? saved : hospital)),
+          profiles: current.profiles.map((profile) =>
+            profile.clinicId === hospitalId ? { ...profile, clinicName: saved.name } : profile
+          )
         }));
         await insertAudit(actorId, "Hospital details updated", "hospital", hospitalId, saved.name);
         return;
@@ -1678,13 +1686,25 @@ export function useDemoStore() {
       if (!hospital) throw new Error("Hospital not found.");
 
       if (mode === "supabase" && supabase) {
-        const { error } = await supabase.from("clinics").delete().eq("id", hospitalId);
-        if (error) throw new Error(error.message);
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) throw new Error("Your Business Admin session expired. Sign in again.");
+
+        const response = await fetch(`/api/hospitals/${hospitalId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error ?? "Could not remove hospital.");
+
         setData((current) => ({
           ...current,
-          hospitals: current.hospitals.filter((item) => item.id !== hospitalId)
+          hospitals: current.hospitals.filter((item) => item.id !== hospitalId),
+          profiles: current.profiles.filter((profile) => profile.clinicId !== hospitalId),
+          patients: current.patients.filter((patient) => patient.clinicId !== hospitalId),
+          scans: current.scans.filter((scan) => scan.clinicId !== hospitalId),
+          reports: current.reports.filter((report) => report.clinicId !== hospitalId)
         }));
-        await insertAudit(actorId, "Hospital removed", "hospital", hospitalId, hospital.name);
         return;
       }
 

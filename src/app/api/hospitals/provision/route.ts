@@ -143,6 +143,39 @@ export async function POST(request: NextRequest) {
   if (!isEmail(adminEmail)) return jsonError("Hospital admin email is required.");
   if (adminPassword.length < 8) return jsonError("Temporary password must be at least 8 characters.");
 
+  const { data: existingClinicCode, error: existingClinicCodeError } = await admin
+    .from("clinics")
+    .select("id")
+    .eq("code", code)
+    .maybeSingle();
+  if (existingClinicCodeError) {
+    console.error("Could not check existing hospital code before provisioning.", existingClinicCodeError);
+    return jsonError("Could not verify whether this hospital already exists.", 500);
+  }
+  if (existingClinicCode) return jsonError(`Hospital code ${code} is already provisioned.`);
+
+  const { data: existingClinicName, error: existingClinicNameError } = await admin
+    .from("clinics")
+    .select("id")
+    .ilike("name", name)
+    .maybeSingle();
+  if (existingClinicNameError) {
+    console.error("Could not check existing hospital name before provisioning.", existingClinicNameError);
+    return jsonError("Could not verify whether this hospital already exists.", 500);
+  }
+  if (existingClinicName) return jsonError(`${name} is already provisioned.`);
+
+  const { data: existingClinicAdmin, error: existingClinicAdminError } = await admin
+    .from("clinics")
+    .select("id")
+    .ilike("admin_email", adminEmail)
+    .maybeSingle();
+  if (existingClinicAdminError) {
+    console.error("Could not check existing hospital admin before provisioning.", existingClinicAdminError);
+    return jsonError("Could not verify whether this hospital already exists.", 500);
+  }
+  if (existingClinicAdmin) return jsonError("That email is already assigned as a hospital admin.");
+
   const { data: existingProfile } = await admin
     .from("profiles")
     .select("id")
@@ -259,6 +292,11 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (adminUserId) await admin.auth.admin.deleteUser(adminUserId).catch(() => undefined);
     await rollbackClinic(admin, clinicId);
-    return jsonError(error instanceof Error ? error.message : "Could not provision hospital.", 500);
+    const message = error instanceof Error ? error.message : "";
+    console.error("Hospital provisioning failed.", error);
+    if (/duplicate key|already registered|already exists/i.test(message)) {
+      return jsonError("That hospital code or admin email is already provisioned.");
+    }
+    return jsonError("Could not provision hospital.", 500);
   }
 }

@@ -839,10 +839,13 @@ export function DashboardView() {
   const visibleModules = store.currentUser.role === "afio_admin" ? platformModules : platformModules.filter((module) => module.enabled);
   const enabledCount = visibleModules.filter((module) => module.enabled).length;
   const hospital = store.currentHospital;
+  const dashboardTitle = store.currentUser.role === "afio_admin"
+    ? "AFIO Platform Dashboard"
+    : `${hospital?.name ?? store.currentUser.clinicName ?? "Hospital"} Dashboard`;
   return (
     <>
       <PageTitle
-        title="AFIO Platform Dashboard"
+        title={dashboardTitle}
         subtitle={store.currentUser.role === "afio_admin" ? "Business Admin preview. Hospitals only see services enabled from the business control panel." : "Choose one of your hospital's purchased services. Patients, reports, feedback, and storage remain scoped to the selected hospital."}
       />
       <div className="grid gap-4 md:grid-cols-4">
