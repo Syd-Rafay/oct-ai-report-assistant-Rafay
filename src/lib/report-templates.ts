@@ -2,10 +2,10 @@ import type { ClinicalClass, DiseaseClass, ModuleId } from "./types";
 import { supabase } from "./supabase";
 
 export const safetyDisclaimer =
-  "AI-assisted preliminary result. Requires doctor review.";
+  "Preliminary screening result. Requires doctor review.";
 
 export const finalReportDisclaimer =
-  "This report was generated with AI assistance and reviewed by a qualified clinician. The AI output is not a standalone diagnosis.";
+  "This report was prepared with screening support and reviewed by a qualified clinician. The screening output is not a standalone diagnosis.";
 
 export const approvedReportDisclaimer =
   "This report was reviewed by a qualified clinician and should be interpreted with the full clinical context.";
@@ -22,8 +22,8 @@ export const reportTemplates: Record<
 > = {
   NORMAL: {
     findings:
-      "The OCT image does not show obvious abnormal features based on AI-assisted analysis.",
-    impression: "AI-assisted classification suggests a normal OCT pattern.",
+      "The OCT image does not show obvious abnormal features on screening review.",
+    impression: "Screening classification suggests a normal OCT pattern.",
     recommendation:
       "Routine clinical review is advised if symptoms persist or if clinical suspicion remains."
   },
@@ -31,7 +31,7 @@ export const reportTemplates: Record<
     findings:
       "The OCT image shows features suggestive of choroidal neovascularization.",
     impression:
-      "AI-assisted classification suggests CNV. This may require retinal specialist review.",
+      "Screening classification suggests CNV. This may require retinal specialist review.",
     recommendation:
       "Ophthalmologist confirmation and further retinal evaluation are advised."
   },
@@ -39,7 +39,7 @@ export const reportTemplates: Record<
     findings:
       "The OCT image shows features suggestive of diabetic macular edema.",
     impression:
-      "AI-assisted classification suggests DME. Clinical correlation with diabetic history is recommended.",
+      "Screening classification suggests DME. Clinical correlation with diabetic history is recommended.",
     recommendation:
       "Ophthalmologist review and correlation with patient history, visual acuity, and fundus examination are advised."
   },
@@ -47,49 +47,49 @@ export const reportTemplates: Record<
     findings:
       "The OCT image shows features suggestive of drusen-related retinal changes.",
     impression:
-      "AI-assisted classification suggests DRUSEN. This may be associated with age-related macular changes.",
+      "Screening classification suggests DRUSEN. This may be associated with age-related macular changes.",
     recommendation:
       "Further ophthalmic evaluation and monitoring may be considered."
   },
   KCN: {
     findings:
-      "The VKG/topography image shows AI-screening features that may be consistent with keratoconus risk.",
+      "The VKG/topography image shows screening features that may be consistent with keratoconus risk.",
     impression:
-      "AI-assisted VKG screening suggests KCN. Corneal specialist review and clinical correlation are required.",
+      "VKG screening suggests KCN. Corneal specialist review and clinical correlation are required.",
     recommendation:
       "Review tomography/topography indices, refraction, visual acuity, slit-lamp findings, and progression history. Consider corneal specialist referral if clinically indicated."
   },
   SUSPECT: {
     findings:
-      "The VKG/topography image shows borderline or mixed AI-screening features.",
+      "The VKG/topography image shows borderline or mixed screening features.",
     impression:
-      "AI-assisted VKG screening suggests a suspect / borderline corneal topography pattern.",
+      "VKG screening suggests a suspect / borderline corneal topography pattern.",
     recommendation:
       "Repeat or verify image quality, compare with prior topography if available, and review clinically before confirming disease or normal status."
   },
   NO_DR: {
-    findings: "The combined fundus screening did not show AI-screening features of diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the model summary.",
-    impression: "AI-assisted fundus screening suggests no diabetic retinopathy.",
+    findings: "The combined fundus screening did not show screening features of diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the result summary.",
+    impression: "Fundus screening suggests no diabetic retinopathy.",
     recommendation: "Review the glaucoma CDR/risk and hypertensive-retinopathy status from the model summary, then continue routine diabetic eye screening if clinically appropriate."
   },
   MILD_DR: {
-    findings: "The combined fundus screening shows mild AI-screening features that may be consistent with early diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the model summary.",
-    impression: "AI-assisted fundus screening suggests mild diabetic retinopathy.",
+    findings: "The combined fundus screening shows mild screening features that may be consistent with early diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the result summary.",
+    impression: "Fundus screening suggests mild diabetic retinopathy.",
     recommendation: "Review the glaucoma CDR/risk and hypertensive-retinopathy status, optimise systemic risk factors, and plan follow-up after clinician review."
   },
   MODERATE_DR: {
-    findings: "The combined fundus screening shows moderate AI-screening features of diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the model summary.",
-    impression: "AI-assisted fundus screening suggests moderate diabetic retinopathy.",
+    findings: "The combined fundus screening shows moderate screening features of diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the result summary.",
+    impression: "Fundus screening suggests moderate diabetic retinopathy.",
     recommendation: "Ophthalmology review is advised, with correlation against visual acuity, fundus examination, glaucoma risk, hypertensive-retinopathy status, and diabetic history."
   },
   SEVERE_DR: {
-    findings: "The combined fundus screening shows severe AI-screening features of diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the model summary.",
-    impression: "AI-assisted fundus screening suggests severe diabetic retinopathy.",
+    findings: "The combined fundus screening shows severe screening features of diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the result summary.",
+    impression: "Fundus screening suggests severe diabetic retinopathy.",
     recommendation: "Urgent ophthalmology referral is advised after clinician confirmation, especially if glaucoma or hypertensive-retinopathy outputs are also abnormal."
   },
   PROLIFERATIVE_DR: {
-    findings: "The combined fundus screening shows AI-screening features concerning for proliferative diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the model summary.",
-    impression: "AI-assisted fundus screening suggests proliferative diabetic retinopathy.",
+    findings: "The combined fundus screening shows screening features concerning for proliferative diabetic retinopathy. Glaucoma and hypertensive-retinopathy outputs should be reviewed in the result summary.",
+    impression: "Fundus screening suggests proliferative diabetic retinopathy.",
     recommendation: "Emergency or urgent retinal specialist review is advised after clinician confirmation, with attention to concurrent glaucoma or hypertensive-retinopathy risk."
   }
 };

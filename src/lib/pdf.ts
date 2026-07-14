@@ -47,12 +47,12 @@ function addFooter(doc: jsPDF, margin: number, safeDate: string, pageNumber: num
   doc.text(`AFIO Platform - Page ${pageNumber} of ${pageCount} - ${safeDate}`, margin, 812);
 }
 
-function reportBrand(scan: Pick<Scan, "moduleId" | "scanType">, includeAiName = true) {
+function reportBrand(scan: Pick<Scan, "moduleId" | "scanType">) {
   const moduleId = scan.moduleId ?? (scan.scanType === "VKG" ? "vkg" : scan.scanType === "RETINA" ? "retina" : scan.scanType === "CORNEAL" ? "corneal" : "oct");
-  if (moduleId === "vkg") return { title: includeAiName ? "VKG AI" : "VKG", filenamePrefix: "VKG_Report" };
-  if (moduleId === "retina") return { title: includeAiName ? "RetinalScan AI" : "RetinalScan", filenamePrefix: "RetinalScan_Report" };
-  if (moduleId === "corneal") return { title: includeAiName ? "Corneal AI" : "Corneal", filenamePrefix: "Corneal_Report" };
-  return { title: includeAiName ? "OCT AI" : "OCT", filenamePrefix: "OCT_Report" };
+  if (moduleId === "vkg") return { title: "VKG", filenamePrefix: "VKG_Report" };
+  if (moduleId === "retina") return { title: "RetinalScan", filenamePrefix: "RetinalScan_Report" };
+  if (moduleId === "corneal") return { title: "Corneal", filenamePrefix: "Corneal_Report" };
+  return { title: "OCT", filenamePrefix: "OCT_Report" };
 }
 
 function cleanModelVersionForPdf(modelVersion: string) {
@@ -99,7 +99,7 @@ export async function downloadReportPdf(args: {
 }) {
   const { patient, scan, aiResult, report, approver } = args;
   const isApproved = report.status === "approved";
-  const brand = reportBrand(scan, !isApproved);
+  const brand = reportBrand(scan);
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const margin = 48;
   let y = 52;
@@ -157,7 +157,7 @@ export async function downloadReportPdf(args: {
 
   y += 78;
   doc.setFont("helvetica", "bold");
-  doc.text(isApproved ? "CLINICAL RESULT" : "AI MODEL OUTPUT", margin, y);
+  doc.text(isApproved ? "CLINICAL RESULT" : "SCREENING OUTPUT", margin, y);
   doc.setFont("helvetica", "normal");
   if (isApproved) {
     doc.text(`Screening result: ${report.finalDiagnosis}`, margin, y + 20);
@@ -184,7 +184,7 @@ export async function downloadReportPdf(args: {
       doc.text(
         isApproved
           ? "Highlighted regions were reviewed as part of the screening result. This is not a segmentation map or measurement."
-          : "Highlighted regions influenced the AI classification. This is not a segmentation map or measurement.",
+          : "Highlighted regions influenced the screening result. This is not a segmentation map or measurement.",
         margin,
         y + 234,
         { maxWidth: 500 }
@@ -206,7 +206,7 @@ export async function downloadReportPdf(args: {
     drawWrappedText(
       doc,
       aiResult.heatmapUrl
-        ? "Grad-CAM overlay was generated and is available in the scan analysis view. Highlighted regions indicate areas that influenced the AI classification."
+        ? "Grad-CAM overlay was generated and is available in the scan analysis view. Highlighted regions indicate areas that influenced the screening result."
         : "Grad-CAM overlay was not generated for this report. Enable the backend Grad-CAM worker for heatmap testing.",
       margin,
       y + 18,

@@ -21,7 +21,7 @@ export const clinicalModules: ClinicalModule[] = [
     department: "OCT Department",
     shortName: "OCT",
     status: "live",
-    description: "Macular OCT upload, AI-assisted classification, doctor review, and report generation.",
+    description: "Macular OCT upload, screening result, doctor review, and report generation.",
     route: "/modules/oct",
     accent: "bg-cyan-50 text-cyan-800 ring-cyan-200",
     icon: ScanEye

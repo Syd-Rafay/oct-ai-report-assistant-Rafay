@@ -506,8 +506,8 @@ export function LoginView() {
     <main className="grid min-h-screen bg-slate-50 lg:grid-cols-[1fr_520px]">
       <section className="hidden bg-[linear-gradient(135deg,#0f6170,#2563eb)] px-14 py-16 text-white lg:flex lg:flex-col lg:justify-between">
         <div>
-          <p className="mb-8 text-sm font-bold uppercase tracking-[0.18em] text-white/70">AFIO AI Platform</p>
-          <h1 className="max-w-xl text-4xl font-black leading-tight">Clinical AI workflow system for ophthalmology.</h1>
+          <p className="mb-8 text-sm font-bold uppercase tracking-[0.18em] text-white/70">AFIO Clinical Platform</p>
+          <h1 className="max-w-xl text-4xl font-black leading-tight">Clinical workflow system for ophthalmology.</h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-white/82">
             Open licensed diagnostic modules, keep department records separated, and route each report through doctor review.
           </p>
@@ -804,7 +804,7 @@ export function DashboardView() {
       owner: "OCT SERVICE",
       route: "/modules/oct",
       status: "Live",
-      summary: "OCT patients, upload/test workflow, EfficientNet analysis, Grad-CAM when enabled, doctor review, and approved reports."
+      summary: "OCT patients, image uploads, screening results, doctor review, and approved reports."
     },
     {
       id: "vkg",
@@ -813,7 +813,7 @@ export function DashboardView() {
       owner: "VKG SERVICE",
       route: "/modules/vkg",
       status: "Live",
-      summary: "VKG/topography patients, screening workflow, AI result capture, module templates, and separate report history."
+      summary: "VKG/topography patients, screening workflow, draft reports, templates, and separate report history."
     },
     {
       id: "corneal",
@@ -832,7 +832,7 @@ export function DashboardView() {
       owner: "RETINA SERVICE",
       route: "/modules/retina",
       status: "Live",
-      summary: "Group 3 fundus workflow with DR severity, glaucoma CDR/risk, hypertensive-retinopathy screening, patient records, reports, and editable templates.",
+      summary: "Fundus screening for diabetic retinopathy, glaucoma risk, and hypertensive retinopathy with patient records and reports.",
       accessHint: "Enable after the hospital purchases Retina access."
     }
   ];
@@ -956,7 +956,7 @@ export function OctModuleView() {
     <>
       <PageTitle
         title="OCT"
-        subtitle="Full OCT workflow: patients, tests, EfficientNet analysis, Grad-CAM when enabled, report drafting, doctor review, and PDF delivery."
+        subtitle="OCT workflow for patients, tests, screening results, doctor review, and PDF delivery."
         action={
           <div className="grid gap-2 sm:flex">
             <Link href="/patients/new" className="block">
@@ -980,7 +980,6 @@ export function OctModuleView() {
           </div>
         }
       />
-      <SafetyNotice />
       <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {stats.map(([label, value]) => (
           <Card key={label} className="p-5">
@@ -1035,7 +1034,7 @@ export function VkgModuleView() {
     <>
       <PageTitle
         title="VKG"
-        subtitle="VKG/topography screening workflow with separate patients, scans, AI results, report templates, and reports."
+        subtitle="VKG/topography screening workflow with separate patients, scans, report templates, and reports."
         action={
           <div className="grid gap-2 sm:flex">
             <Link href="/patients/new?module=vkg" className="block">
@@ -1059,7 +1058,6 @@ export function VkgModuleView() {
           </div>
         }
       />
-      <SafetyNotice />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {stats.map(([label, value]) => (
           <Card key={label} className="p-5">
@@ -1132,7 +1130,7 @@ export function RetinaModuleView() {
     <>
       <PageTitle
         title="Retinal Fundus Screening"
-        subtitle="Group 3 fundus workflow for DR severity, glaucoma risk, and hypertensive retinopathy screening. Patients, scans, and reports stay separate from OCT and VKG."
+        subtitle="Fundus workflow for DR severity, glaucoma risk, and hypertensive retinopathy screening."
         action={
           <div className="grid gap-2 sm:flex">
             <Link href="/patients/new?module=retina" className="block">
@@ -1156,14 +1154,13 @@ export function RetinaModuleView() {
           </div>
         }
       />
-      <SafetyNotice />
       <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {[
           ["Retina patients", retinaPatients.length],
           ["Fundus scans", retinaScans.length],
           ["Reports", retinaReports.length],
-          ["AI services", 3],
-          ["Deployment", "Live"]
+          ["Screening checks", 3],
+          ["Status", "Live"]
         ].map(([label, value]) => (
           <Card key={label} className="p-5">
             <p className="text-sm font-semibold text-slate-500">{label}</p>
@@ -1193,17 +1190,17 @@ export function RetinaModuleView() {
               <Info label="Classes" value={active.classes} />
             </div>
           </div>
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            <p className="font-black">Deployment note</p>
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <p className="font-black text-slate-950">Screening workflow</p>
             <p className="mt-2 leading-6">
-              Group 3 is live on Render. One fundus upload runs diabetic-retinopathy severity, glaucoma CDR/risk, and hypertensive-retinopathy screening together, then routes the combined result into doctor review and a Retina report draft.
+              One fundus upload prepares diabetic-retinopathy severity, glaucoma risk, and hypertensive-retinopathy findings for doctor review.
             </p>
           </div>
         </div>
       </Card>
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Recent Retina Patients" subtitle="Fundus patients only. OCT and VKG records do not appear here." />
+          <CardHeader title="Recent Retina Patients" />
           <div className="divide-y divide-slate-100">
             {retinaPatients.slice(0, 5).map((patient) => (
               <Link key={patient.id} href={`/patients/${patient.id}`} className="flex items-center justify-between px-5 py-4 hover:bg-slate-50">
@@ -1239,7 +1236,7 @@ export function LockedModuleView({ moduleName, owner, description }: { moduleNam
             ))}
           </div>
           <p className="mt-5 text-sm leading-6 text-slate-600">
-            When this module is enabled from Business Admin, its own patient list, upload flow, AI result page, report templates, and feedback inbox will be scoped by hospital.
+            When this module is enabled from Business Admin, its own patient list, upload flow, result page, report templates, and feedback inbox will be scoped by hospital.
           </p>
         </Card>
       </div>
@@ -1833,7 +1830,7 @@ export function PatientProfileView({ id }: { id: string }) {
           {saved ? <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{saved}</p> : null}
         </Card>
         <Card>
-          <CardHeader title="Uploaded Scans" subtitle="Each scan links to the AI analysis page." />
+          <CardHeader title="Uploaded Scans" subtitle="Each scan links to the screening result page." />
           {scans.length ? (
             <div className="divide-y divide-slate-100">
               {scans.map((scan) => {
@@ -1846,7 +1843,7 @@ export function PatientProfileView({ id }: { id: string }) {
                       <p className="font-bold text-slate-900">{new Date(scan.createdAt).toLocaleString()}</p>
                       <p className="text-sm text-slate-500">Eye side: {scan.eyeSide}</p>
                       <p className="text-sm text-slate-500">
-                        AI: {ai ? `${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)` : "Not analyzed"}
+                        Result: {ai ? `${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)` : "Not analyzed"}
                       </p>
                     </div>
                     <div className="grid gap-2 sm:flex sm:flex-wrap">
@@ -1932,7 +1929,7 @@ export function UploadScanView() {
     setLoading(true);
     try {
       if (moduleId === "corneal") {
-        throw new Error(`${moduleLabel} AI backend is not connected yet. Use this module workspace for patient setup and deployment tracking until its Render service is live.`);
+        throw new Error(`${moduleLabel} screening backend is not connected yet. Use this module workspace for patient setup until the service is live.`);
       }
       const preparedAgain = await prepareScanImages(predictionFile);
       const prediction = moduleId === "retina"
@@ -1944,7 +1941,7 @@ export function UploadScanView() {
         const message =
           prediction.prediction === "INVALID_IMAGE"
             ? `Invalid image uploaded. Please upload a valid ${moduleLabel} scan.`
-            : "Low-confidence result. AI could not confidently classify this scan. Requires doctor review.";
+            : "Low-confidence result. The scan could not be classified confidently and requires doctor review.";
         setAnalysisWarning(`${message} ${prediction.disclaimer}`);
         return;
       }
@@ -1954,7 +1951,7 @@ export function UploadScanView() {
       await store.createReport(scan, aiResult);
       router.push(`/scans/${scan.id}/analysis`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI prediction failed.");
+      setError(err instanceof Error ? err.message : "Screening failed.");
     } finally {
       setLoading(false);
     }
@@ -1962,7 +1959,7 @@ export function UploadScanView() {
 
   return (
     <>
-      <PageTitle title={`Upload ${moduleLabel} Scan`} subtitle={`Upload a patient ${moduleLabel} image for AI-assisted screening and draft report preparation.`} />
+      <PageTitle title={`Upload ${moduleLabel} Scan`} subtitle={`Upload a patient ${moduleLabel} image for screening and draft report preparation.`} />
       <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
         <Card className="p-5">
           <div className="grid gap-4 md:grid-cols-2">
@@ -2042,7 +2039,7 @@ export function AnalysisView({ id }: { id: string }) {
       const result = await store.saveBackendAnalysis(scan, prediction);
       return result;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "AI analysis failed.";
+      const message = err instanceof Error ? err.message : "Analysis failed.";
       setAnalysisError(message);
       throw err;
     } finally {
@@ -2100,7 +2097,7 @@ export function AnalysisView({ id }: { id: string }) {
   return (
     <>
       <PageTitle
-        title="AI Analysis"
+        title="Screening Result"
         subtitle={patient ? `${patient.patientCode} - ${patient.fullName}` : "OCT scan analysis"}
         action={
           <Button className="w-full" onClick={generate}>
@@ -2123,7 +2120,7 @@ export function AnalysisView({ id }: { id: string }) {
         </Card>
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-black text-slate-950">Model Output</h3>
+            <h3 className="font-black text-slate-950">Screening Output</h3>
             <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">{aiResult?.modelName ?? "Not analyzed"}</span>
           </div>
           <SafetyNotice />
@@ -2135,7 +2132,7 @@ export function AnalysisView({ id }: { id: string }) {
               ) : (
                 <>
                   <div className="rounded-lg bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-500">AI Prediction</p>
+                    <p className="text-sm font-semibold text-slate-500">Predicted finding</p>
                     <p className="mt-1 text-4xl font-black text-clinic-700">{aiResult.predictedClass}</p>
                     <p className="mt-1 text-sm text-slate-500">Confidence {Math.round(aiResult.confidence * 100)}%</p>
                   </div>
@@ -2151,7 +2148,7 @@ export function AnalysisView({ id }: { id: string }) {
                   <p className="text-sm font-black text-slate-950">Grad-CAM attention heatmap</p>
                   <img src={imageDisplaySource(aiResult.heatmapUrl)} alt="Grad-CAM heatmap overlay" className="mt-3 aspect-[4/3] w-full rounded-md bg-slate-900 object-cover" />
                   <p className="mt-2 text-xs font-medium leading-relaxed text-slate-500">
-                    Highlighted regions influenced the AI classification. This is not a segmentation map or measurement.
+                    Highlighted regions influenced the screening result. This is not a segmentation map or measurement.
                   </p>
                 </div>
               ) : null}
@@ -2190,7 +2187,7 @@ export function AnalysisView({ id }: { id: string }) {
             </div>
           ) : (
             <div className="mt-5">
-              <EmptyState title="No result yet" body="Run analysis to create an AI-assisted classification for this scan." />
+              <EmptyState title="No result yet" body="Run analysis to create a preliminary screening result for this scan." />
               <Button className="mt-4 w-full sm:w-auto" onClick={analyzeScan} disabled={analysisLoading}>
                 {analysisLoading ? <Loader2 className="animate-spin" size={16} /> : null}
                 {analysisLoading ? "Analyzing..." : "Run Analysis"}
@@ -2318,7 +2315,7 @@ export function ReportEditorView({ id }: { id: string }) {
           {patient ? <Info label="Access password" value={getPatientCurrentAccessPassword(patient)} /> : null}
           {ai ? (
             <>
-              <Info label="AI prediction" value={`${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)`} />
+              <Info label="Screening result" value={`${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)`} />
               <SafetyNotice />
             </>
           ) : null}
@@ -2512,7 +2509,7 @@ export function ReportView({ id }: { id: string }) {
               {isApprovedReport ? (
                 <Info label="Clinical result" value={report.finalDiagnosis} />
               ) : ai ? (
-                <Info label="AI prediction" value={`${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)`} />
+                <Info label="Screening result" value={`${ai.predictedClass} (${Math.round(ai.confidence * 100)}%)`} />
               ) : null}
               <Info label="Approved by" value={approver?.fullName ?? "Not approved"} />
               <Info label="Approved at" value={report.approvedAt ? new Date(report.approvedAt).toLocaleString() : "Not approved"} />
@@ -2557,7 +2554,7 @@ export function ReportHistoryView() {
   });
   return (
     <>
-      <PageTitle title={`${moduleLabel} Report History`} subtitle={`Search ${moduleLabel} reports by patient ID, CNIC, name, status, AI prediction, or final diagnosis.`} />
+      <PageTitle title={`${moduleLabel} Report History`} subtitle={`Search ${moduleLabel} reports by patient ID, CNIC, name, status, screening result, or final diagnosis.`} />
       <Card className="p-5">
         <input className="field" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search CNIC, name, status, or diagnosis..." />
       </Card>
@@ -3312,7 +3309,7 @@ export function TemplatesView() {
     <>
       <PageTitle
         title={`${moduleLabel} Report Templates`}
-        subtitle={`Edit the default ${moduleLabel} draft text doctors receive when AI-generated reports are created.`}
+        subtitle={`Edit the default ${moduleLabel} draft text doctors receive when reports are created.`}
         action={
           <div className="grid gap-2 sm:flex">
             <Button className="w-full sm:w-auto" variant="secondary" onClick={resetTemplates} disabled={saving}>Reset Defaults</Button>
@@ -3456,7 +3453,7 @@ function ReportRows({ reports }: { reports: Report[] }) {
           <div key={report.id} className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_auto_auto] md:items-center">
             <div>
               <p className="font-bold text-slate-900">{patient?.fullName ?? "Unknown patient"}</p>
-              <p className="text-sm text-slate-500">{patient?.patientCode ?? "-"} | AI: {ai?.predictedClass ?? "-"}</p>
+              <p className="text-sm text-slate-500">{patient?.patientCode ?? "-"} | Result: {ai?.predictedClass ?? "-"}</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {patient ? <code className="rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-800">{getPatientCurrentAccessPassword(patient)}</code> : null}
                 <button

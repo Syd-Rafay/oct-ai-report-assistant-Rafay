@@ -92,7 +92,7 @@ export function EmptyState({ title, body }: { title: string; body: string }) {
 export function SafetyNotice() {
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
-      AI-assisted preliminary result. Requires doctor review.
+      Preliminary screening result. Requires doctor review.
     </div>
   );
 }

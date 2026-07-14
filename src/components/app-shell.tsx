@@ -159,7 +159,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="flex h-20 items-center gap-3 border-b border-slate-100 px-6">
           <EyeDepartmentLogo />
           <div>
-            <p className="text-sm font-black text-slate-950">AFIO AI Platform</p>
+            <p className="text-sm font-black text-slate-950">AFIO Clinical Platform</p>
             <p className="text-xs font-medium text-slate-500">{store.currentUser.role === "afio_admin" ? "Business control" : `${moduleLabel} access`}</p>
           </div>
         </div>
@@ -235,7 +235,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-wide text-clinic-700">{store.currentUser.role === "afio_admin" ? "Business workspace" : "Clinical workspace"}</p>
-              <h1 className="text-xl font-black text-slate-950">{store.currentUser.role === "afio_admin" ? "Business Admin" : "AFIO AI Report Platform"}</h1>
+              <h1 className="text-xl font-black text-slate-950">{store.currentUser.role === "afio_admin" ? "Business Admin" : "AFIO Clinical Report Platform"}</h1>
             </div>
             <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
               <select

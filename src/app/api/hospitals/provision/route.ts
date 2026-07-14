@@ -65,13 +65,13 @@ async function sendWelcomeEmail(input: {
   const signInUrl = input.activationLink ?? `${appUrl}/login`;
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
-      <h2>Welcome to AFIO AI Report Platform</h2>
+      <h2>Welcome to AFIO Clinical Report Platform</h2>
       <p>Your hospital workspace for <strong>${input.hospitalName}</strong> is ready.</p>
       <p>Enabled services: <strong>${modules}</strong></p>
       <p>Activate your account here: <a href="${signInUrl}">${signInUrl}</a></p>
       <p><strong>Email:</strong> ${input.to}<br/><strong>Temporary password:</strong> ${input.password}</p>
       <p>Please change this password after your first login.</p>
-      <p>Thank you for choosing AFIO clinical AI services.</p>
+      <p>Thank you for choosing AFIO clinical services.</p>
     </div>
   `;
 
