@@ -34,6 +34,7 @@ import { getModulesByIds } from "@/lib/modules";
 import { downloadPublicReportPdf, downloadReportPdf } from "@/lib/pdf";
 import { changePatientAccessPassword, checkPublicReport, getPatientAccessId, getPatientCurrentAccessPassword, sendFeedbackEmail, sendReportAccessEmail, type PublicReport, type PublicReportResult } from "@/lib/report-access";
 import { getReportTemplates, reportClassesForModule, reportTemplates, saveReportTemplates } from "@/lib/report-templates";
+import { supabase } from "@/lib/supabase";
 import type { AiResult, BusinessPermissionKey, BusinessPermissions, ClinicalClass, DiseaseClass, EyeSide, FeedbackEntry, Gender, ModuleId, Patient, Report, Role, Scan } from "@/lib/types";
 
 const diseaseClasses: DiseaseClass[] = ["CNV", "DME", "DRUSEN", "NORMAL"];
@@ -685,6 +686,55 @@ export function ResetPasswordView() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function prepareRecoverySession() {
+      if (!supabase) {
+        setError("Supabase is not configured.");
+        setReady(true);
+        return;
+      }
+
+      try {
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get("code");
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
+        const type = hashParams.get("type");
+
+        if (code) {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) throw exchangeError;
+          window.history.replaceState({}, document.title, "/reset-password");
+        } else if (accessToken && refreshToken && type === "recovery") {
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          if (sessionError) throw sessionError;
+          window.history.replaceState({}, document.title, "/reset-password");
+        } else {
+          const { data } = await supabase.auth.getSession();
+          if (!data.session) {
+            setError("Open this page from the password reset email link, then enter a new password.");
+          }
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not verify the password reset link.");
+      } finally {
+        if (!cancelled) setReady(true);
+      }
+    }
+
+    void prepareRecoverySession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updatePassword = async () => {
     setError("");
@@ -718,9 +768,9 @@ export function ResetPasswordView() {
         <>
           <input className="field" type="password" autoComplete="new-password" placeholder="New password" value={password} onChange={(event) => setPassword(event.target.value)} />
           <input className="field" type="password" autoComplete="new-password" placeholder="Confirm password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
-          <Button className="w-full" onClick={updatePassword} disabled={loading || !password || !confirmPassword}>
+          <Button className="w-full" onClick={updatePassword} disabled={!ready || loading || !password || !confirmPassword}>
             {loading ? <Loader2 className="animate-spin" size={16} /> : null}
-            Update password
+            {ready ? "Update password" : "Checking reset link..."}
           </Button>
           {message ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{message}</p> : null}
           {error ? <p className="rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
