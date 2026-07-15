@@ -84,6 +84,7 @@ const adminItems = [
 ];
 
 const THEME_KEY = "afio-theme";
+const businessBlockedClinicalRoutes = ["/modules", "/patients", "/scans", "/reports", "/admin/templates"];
 
 function EyeDepartmentLogo() {
   return (
@@ -137,6 +138,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [store.ready, isAuthenticated, pathname, router]);
 
+  const businessOnClinicalRoute =
+    store.ready &&
+    isAuthenticated &&
+    store.currentUser.role === "afio_admin" &&
+    businessBlockedClinicalRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+
+  useEffect(() => {
+    if (businessOnClinicalRoute) {
+      router.replace("/dashboard");
+    }
+  }, [businessOnClinicalRoute, router]);
+
   if (!store.ready) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
@@ -152,6 +165,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
         <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-600 shadow-panel">
           Redirecting to sign in...
+        </div>
+      </main>
+    );
+  }
+
+  if (businessOnClinicalRoute) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
+        <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-600 shadow-panel">
+          Opening business workspace...
         </div>
       </main>
     );

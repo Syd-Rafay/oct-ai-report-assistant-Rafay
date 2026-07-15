@@ -955,7 +955,11 @@ export function DashboardView() {
               <p className="mt-4 min-h-24 text-sm leading-6 text-slate-600">{module.summary}</p>
               <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
                 <span className="text-xs font-black uppercase text-slate-500">{module.status}</span>
-                {module.enabled ? (
+                {store.currentUser.role === "afio_admin" ? (
+                  <Link href="/afio/admin">
+                    <Button variant="secondary">Manage Access</Button>
+                  </Link>
+                ) : module.enabled ? (
                   <Link href={module.route}>
                     <Button variant="secondary">Open Module</Button>
                   </Link>
