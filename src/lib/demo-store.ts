@@ -778,6 +778,32 @@ async function insertAudit(userId: string | null, action: string, recordType: st
   });
 }
 
+async function createPendingSignupProfile(input: {
+  userId: string;
+  email: string;
+  fullName: string;
+  role: Role;
+  doctorId?: string;
+  clinicId: string;
+  clinicName: string;
+}) {
+  const response = await fetch("/api/auth/signup-profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: input.userId,
+      email: input.email,
+      full_name: input.fullName,
+      role: input.role,
+      doctor_id: input.doctorId || null,
+      clinic_id: input.clinicId,
+      clinic_name: input.clinicName
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error ?? "Could not create pending account request.");
+}
+
 async function loadHospitalsForSignup() {
   if (!supabase) return demoHospitals;
   const { data, error } = await supabase
@@ -1019,6 +1045,18 @@ export function useDemoStore() {
       if (signUpData.user && identityCount === 0) {
         throw new Error("An account with this email already exists. Please sign in or use Forgot password.");
       }
+      if (signUpData.user) {
+        await createPendingSignupProfile({
+          userId: signUpData.user.id,
+          email: normalizedEmail,
+          fullName: input.fullName,
+          role: input.role,
+          doctorId: input.doctorId,
+          clinicId: requestedHospital.id,
+          clinicName: requestedHospital.name
+        });
+      }
+
       const authUser = signUpData.session?.user ?? null;
       if (!authUser) {
         throw new Error("Account request submitted. Confirm the email from Supabase, then wait for administrator approval.");
