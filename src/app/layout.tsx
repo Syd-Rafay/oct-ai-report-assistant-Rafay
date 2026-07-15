@@ -16,7 +16,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               try {
                 var saved = localStorage.getItem('afio-theme');
                 var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-                if ((saved && saved === 'dark') || (!saved && prefersDark)) {
+                var lightOnly = window.location.pathname === '/login' || window.location.pathname.startsWith('/login/');
+                if (!lightOnly && ((saved && saved === 'dark') || (!saved && prefersDark))) {
                   document.documentElement.classList.add('dark');
                 }
               } catch (_) {}

@@ -467,6 +467,10 @@ export function LoginView() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    document.documentElement.classList.remove("dark");
+  }, []);
+
   const submit = async () => {
     setError("");
     setMessage("");

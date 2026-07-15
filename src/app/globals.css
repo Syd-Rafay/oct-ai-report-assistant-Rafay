@@ -21,7 +21,9 @@ body {
 }
 
 .dark body {
-  background: #07111f;
+  background:
+    radial-gradient(circle at 18% -10%, rgb(8 145 178 / 0.18), transparent 34rem),
+    linear-gradient(180deg, #091626 0%, #07111f 48%, #050b15 100%);
   color: #dbeafe;
 }
 
@@ -34,7 +36,7 @@ textarea {
 
 @layer components {
   .field {
-    @apply w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-clinic-500 focus:ring-2 focus:ring-clinic-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-cyan-400 dark:focus:ring-cyan-950;
+    @apply w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-clinic-500 focus:ring-2 focus:ring-clinic-100 dark:border-slate-700 dark:bg-[#091525] dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-cyan-300 dark:focus:ring-cyan-950;
   }
 
   .label {
@@ -44,27 +46,35 @@ textarea {
 
 @layer utilities {
   .dark .bg-white {
-    background-color: #0f172a;
+    background-color: #101b2d;
   }
 
   .dark .bg-white\/90 {
-    background-color: rgb(15 23 42 / 0.9);
+    background-color: rgb(16 27 45 / 0.92);
   }
 
   .dark .bg-slate-50 {
-    background-color: #0b1220;
+    background-color: #0b1626;
   }
 
   .dark .bg-slate-100 {
-    background-color: #1e293b;
+    background-color: #162338;
   }
 
   .dark .bg-slate-200 {
-    background-color: #334155;
+    background-color: #26364e;
+  }
+
+  .dark .bg-slate-900 {
+    background-color: #101b2d;
+  }
+
+  .dark .bg-slate-950 {
+    background-color: #091525;
   }
 
   .dark .bg-clinic-50 {
-    background-color: rgb(8 145 178 / 0.16);
+    background-color: rgb(8 145 178 / 0.22);
   }
 
   .dark .bg-emerald-50 {
@@ -101,7 +111,12 @@ textarea {
 
   .dark .border-slate-100,
   .dark .border-slate-200 {
-    border-color: #1e293b;
+    border-color: #24344d;
+  }
+
+  .dark .border-slate-700,
+  .dark .border-slate-800 {
+    border-color: #2b3c55;
   }
 
   .dark .border-emerald-200 {
@@ -128,6 +143,10 @@ textarea {
   }
 
   .dark .text-clinic-700 {
+    color: #7dd3fc;
+  }
+
+  .dark .text-clinic-600 {
     color: #67e8f9;
   }
 
@@ -149,7 +168,7 @@ textarea {
 
   .dark .hover\:bg-slate-50:hover,
   .dark .hover\:bg-slate-100:hover {
-    background-color: #1e293b;
+    background-color: #162338;
   }
 
   .dark .hover\:text-slate-950:hover {
@@ -158,6 +177,6 @@ textarea {
 
   .dark .shadow-panel,
   .dark .shadow-soft {
-    box-shadow: 0 18px 45px rgb(0 0 0 / 0.32);
+    box-shadow: 0 18px 50px rgb(0 0 0 / 0.42), inset 0 1px 0 rgb(255 255 255 / 0.03);
   }
 }
