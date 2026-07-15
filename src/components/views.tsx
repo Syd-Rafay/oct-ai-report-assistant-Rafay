@@ -2312,6 +2312,7 @@ export function AnalysisView({ id }: { id: string }) {
   const store = useDemoStore();
   const [analysisError, setAnalysisError] = useState("");
   const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
   const [scanActionLoading, setScanActionLoading] = useState(false);
   const [retinaServices, setRetinaServices] = useState<RetinaServiceSelection>({ dr: true, glaucoma: true, hr: true });
   const [retinaTab, setRetinaTab] = useState<"summary" | "dr" | "glaucoma" | "hr">("summary");
@@ -2350,22 +2351,30 @@ export function AnalysisView({ id }: { id: string }) {
   };
 
   const generate = async () => {
-    const result = aiResult ?? (await analyzeScan());
-    const report = await store.createReport(scan, result);
-    if (patient?.email) {
-      try {
-        await sendReportAccessEmail({
-          toEmail: patient.email,
-          patientName: patient.fullName,
-          accessId: getPatientAccessId(patient),
-          password: getPatientCurrentAccessPassword(patient),
-          mode: "report-registered"
-        });
-      } catch {
-        // Report generation should not fail if the courtesy email cannot be sent.
+    if (generatingReport) return;
+    setAnalysisError("");
+    setGeneratingReport(true);
+    try {
+      const result = aiResult ?? (await analyzeScan());
+      const report = linkedReport ?? (await store.createReport(scan, result));
+      if (patient?.email && !linkedReport) {
+        try {
+          await sendReportAccessEmail({
+            toEmail: patient.email,
+            patientName: patient.fullName,
+            accessId: getPatientAccessId(patient),
+            password: getPatientCurrentAccessPassword(patient),
+            mode: "report-registered"
+          });
+        } catch {
+          // Report generation should not fail if the courtesy email cannot be sent.
+        }
       }
+      router.push(`/reports/${report.id}/edit`);
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : "Could not generate report.");
+      setGeneratingReport(false);
     }
-    router.push(`/reports/${report.id}/edit`);
   };
 
   const changeScanPhoto = async (file: File) => {
@@ -2402,9 +2411,9 @@ export function AnalysisView({ id }: { id: string }) {
         title="Screening Result"
         subtitle={patient ? `${patient.patientCode} - ${patient.fullName}` : "OCT scan analysis"}
         action={
-          <Button className="w-full" onClick={generate}>
-            <FileText size={16} />
-            Generate Report
+          <Button className="w-full" onClick={generate} disabled={generatingReport || analysisLoading}>
+            {generatingReport ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
+            {generatingReport ? (aiResult || linkedReport ? "Opening report..." : "Generating report...") : linkedReport ? "Open Report" : "Generate Report"}
           </Button>
         }
       />
