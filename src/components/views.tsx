@@ -2665,6 +2665,12 @@ export function ReportEditorView({ id }: { id: string }) {
                   <Trash2 size={16} />
                   Delete
                 </Button>
+                <Link href={`/reports/${draft.id}/view`} className="block">
+                  <Button className="w-full sm:w-auto" variant="secondary">
+                    <FileText size={16} />
+                    View / Print
+                  </Button>
+                </Link>
                 <Button className="w-full sm:w-auto" onClick={approve}>
                   <CheckCircle2 size={16} />
                   Approve Report
