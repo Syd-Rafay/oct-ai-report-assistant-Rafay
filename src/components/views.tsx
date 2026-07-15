@@ -1881,8 +1881,15 @@ export function NewPatientView() {
   const submit = async () => {
     setError("");
     setSuccess("");
-    if (!form.patientCode || !form.cnic || !form.fullName || !form.age || !form.gender) {
-      setError("Please enter patient ID, CNIC, name, age, and gender.");
+    const missingFields = [
+      !form.patientCode.trim() ? "patient ID" : "",
+      !form.cnic.trim() ? "CNIC" : "",
+      !form.fullName.trim() ? "name" : "",
+      !form.age.trim() ? "age" : "",
+      !form.gender ? "gender" : ""
+    ].filter(Boolean);
+    if (missingFields.length) {
+      setError(`Please enter ${missingFields.join(", ")}.`);
       return;
     }
     if (!isValidCnic(form.cnic)) {
