@@ -1,88 +1,148 @@
-# OCT AI Report Assistant
+# AFIO Clinical Report Platform
 
-Production-style MVP frontend for an AI-assisted ophthalmology OCT report workflow.
+AFIO is a multi-hospital ophthalmology workflow platform for patient records, scan uploads, AI screening, doctor review, approved reports, patient report access, feedback, and business-level hospital/module management.
 
-The current build is a working demo-mode app. It uses Next.js, React, TypeScript, Tailwind CSS, local browser storage, demo AI results, editable report templates, role-aware approval behavior, and PDF export.
+Production site: `https://cvclinics.online`
 
-## What Works Now
+GitHub repo: `https://github.com/Raahym/oct-ai-report-assistant`
 
-- Login screens for doctor, admin, and assistant demo users
-- Dashboard with patient, scan, and report stats
-- Patient creation and search
-- Patient profile with scan/report history
-- OCT upload with image preview and file validation
-- Demo AI analysis for CNV, DME, DRUSEN, NORMAL
-- Required safety label: `AI-assisted preliminary result. Requires doctor review.`
-- Template-based report generation
-- Editable report sections
-- Doctor/admin approval only
-- Final report view with PDF download
-- Report history search
-- Admin users, templates, and audit log screens
+## What The Platform Does
 
-## Demo Login
+- Supports multiple hospitals with separated patients, scans, reports, users, feedback, and audit logs.
+- Lets AFIO Business Admin create hospitals, assign enabled modules, invite AFIO business members, and manage subscriptions/access.
+- Lets hospital admins approve/reject staff signups, suspend/delete users, and control hospital staff roles.
+- Lets doctors/clinical staff create patients, upload scans, run screening, generate report drafts, review/edit reports, approve reports, print/download reports, and share patient access credentials.
+- Lets patients check approved reports through the public report lookup flow.
 
-Use any of these emails. The password field is present for UI realism but not verified until Supabase Auth is connected.
+## Clinical Modules
 
-- `doctor@octai.local`
-- `admin@octai.local`
-- `assistant@octai.local`
+- `OCT`: OCT image screening with OCT report workflow and Grad-CAM support.
+- `VKG`: corneal/topography keratoconus workflow, currently binary output: `Keratoconus` / `Non-keratoconus`.
+- `Retinal Screening`: fundus workflow for diabetic retinopathy, glaucoma risk, and hypertensive retinopathy.
+- `Corneal Detection`: separate corneal model backend services defined in Render.
 
-## Run Frontend
+Each module has separate module-aware patients, scan uploads, report history, report templates, and report text. Module routes use `?module=oct`, `?module=vkg`, `?module=retina`, or `?module=corneal`.
+
+## Tech Stack
+
+- Frontend: Next.js App Router, React, TypeScript, Tailwind CSS.
+- Database/auth/storage: Supabase.
+- PDF/report generation: browser-side report generation with `jspdf`.
+- Email: Resend when configured.
+- Frontend hosting: Vercel.
+- Model/service hosting: Render for Git-backed services; AWS for separately created Grad-CAM/model workers where used.
+
+## Main Folders
+
+```text
+src/app/                  Next.js pages and API routes
+src/components/           App shell and major UI views
+src/lib/                  Store, types, API clients, PDF/report helpers
+supabase/                 SQL schema and setup files
+oct-ai-backend/           OCT FastAPI backend and Grad-CAM service code
+corneal-ai-backend/       Corneal/VKG backend services
+retina-ai-backend/        Retinal screening backend services
+render.yaml               Render blueprint/service definitions
+DEPLOYMENT.md             Deployment environment notes
+AFIO_BACKUP_RUNBOOK.md    Backup/restore notes
+```
+
+## Local Development
+
+Install dependencies:
 
 ```bash
 pnpm install
-pnpm exec next dev --hostname 127.0.0.1 --port 3000
 ```
 
-Open `http://127.0.0.1:3000/login`.
+Run the frontend:
 
-## Folder Structure
+```bash
+pnpm dev
+```
+
+Open:
 
 ```text
-src/app/                 Next.js App Router pages
-src/components/          App shell and screen views
-src/lib/                 Demo store, types, templates, PDF generator, Supabase client
-supabase/schema.sql      PostgreSQL tables and MVP RLS policies
-backend/                 FastAPI prediction service scaffold
+http://127.0.0.1:3000/login
 ```
 
-## Connect Supabase Next
+Type check:
 
-1. Create a Supabase project.
-2. Run `supabase/schema.sql` in the SQL editor.
-3. Create storage buckets:
-   - `oct-scans`
-   - `reports-pdf`
-4. Copy `.env.example` to `.env.local`.
-5. Add:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_AI_BACKEND_URL`
-6. Replace the local functions in `src/lib/demo-store.ts` with Supabase calls while keeping the same UI-facing function names.
-
-## Deployment
-
-See `DEPLOYMENT.md`.
-
-## Connect AI Backend
-
-Run the backend from `backend/`, then update `NEXT_PUBLIC_AI_BACKEND_URL`.
-
-The frontend currently uses demo AI mode. When connecting the backend, call:
-
-```ts
-const formData = new FormData();
-formData.append("file", file);
-
-await fetch(`${process.env.NEXT_PUBLIC_AI_BACKEND_URL}/predict`, {
-  method: "POST",
-  body: formData
-});
+```bash
+pnpm run typecheck
 ```
 
-Save the returned prediction, confidence, probabilities, model name/version, and `is_dummy_result` into `ai_results`.
+Create a local AFIO snapshot:
+
+```bash
+pnpm run snapshot:afio
+```
+
+## Required Environment Variables
+
+Use `.env.example`, `.env.production.example`, and `DEPLOYMENT.md` as references. Do not commit real secrets.
+
+Important frontend/server variables:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+NEXT_PUBLIC_APP_URL
+NEXT_PUBLIC_AI_BACKEND_URL
+NEXT_PUBLIC_OCT_GRADCAM_BACKEND_URL
+NEXT_PUBLIC_CORNEAL_BACKEND_URL
+NEXT_PUBLIC_RETINA_BACKEND_URL
+NEXT_PUBLIC_RETINA_DR_BACKEND_URL
+NEXT_PUBLIC_RETINA_GLAUCOMA_BACKEND_URL
+NEXT_PUBLIC_RETINA_HR_BACKEND_URL
+SUPABASE_SERVICE_ROLE_KEY
+RESEND_API_KEY
+EMAIL_FROM
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` must stay server-side only. Never expose it as a `NEXT_PUBLIC_*` variable.
+
+## Deployment Summary
+
+- GitHub `main` is the source branch.
+- Vercel should auto-deploy frontend changes from GitHub.
+- Render services are defined in `render.yaml`; auto-deploy must be checked per Render service in the Render dashboard.
+- Supabase SQL changes must be applied manually unless a migration/CI process is added.
+- AWS workers do not automatically update from GitHub unless a separate CI/CD process is configured.
+
+## Current Render Services In `render.yaml`
+
+- `oct-ai-backend`
+- `afio-oct-gradcam-backend`
+- `afio-corneal-ai-backend`
+- `afio-corneal-resnet-backend`
+- `afio-corneal-densenet-backend`
+- `afio-corneal-efficientnet-backend`
+- `afio-retina-ai-backend`
+- `afio-retina-dr-backend`
+- `afio-retina-glaucoma-backend`
+- `afio-retina-hr-backend`
+
+## Backup And Restore
+
+The latest local emergency restore backup is stored outside the repo at:
+
+```text
+C:\Users\DELL\Documents\Personal folders\My shit\Internship AI\AFIO PROJECT\AFIO_BACKUPS\latest
+```
+
+It contains:
+
+- source mirror
+- full Git bundle
+- local env backup folder
+- Supabase live JSON export
+- platform inventory
+- restore instructions
+
+See `PROJECT_OPERATOR_GUIDE.md` for the detailed handover and restore guide.
 
 ## Medical Safety
 
-This MVP must not present AI output as a final diagnosis. AI output is always preliminary and requires qualified doctor review before a report becomes final.
+Screening output is decision support only. Draft reports can mention automated screening internally, but approved reports must be doctor-reviewed and should not present AI output as a standalone diagnosis.
