@@ -115,6 +115,7 @@ export async function predictCorneal(file: File): Promise<BackendPrediction> {
 }
 
 export async function predictCornealUlcer(file: File): Promise<BackendPrediction> {
+  // Keep this backend split from the existing corneal ensemble services.
   const backendUrl = process.env.NEXT_PUBLIC_CORNEAL_ULCER_BACKEND_URL?.replace(/\/$/, "");
   return postImagePrediction(
     file,
