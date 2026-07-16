@@ -26,6 +26,24 @@ alter table if exists report_templates drop constraint if exists report_template
 alter table if exists report_templates add constraint report_templates_module_id_check
 check (module_id in ('oct', 'vkg', 'corneal', 'corneal_ulcer', 'retina'));
 
+alter table if exists report_templates drop constraint if exists report_templates_disease_class_check;
+alter table if exists report_templates add constraint report_templates_disease_class_check
+check (disease_class in (
+  'CNV',
+  'DME',
+  'DRUSEN',
+  'NORMAL',
+  'KCN',
+  'SUSPECT',
+  'FLAKY_MIXED',
+  'POINTLIKE',
+  'NO_DR',
+  'MILD_DR',
+  'MODERATE_DR',
+  'SEVERE_DR',
+  'PROLIFERATIVE_DR'
+));
+
 alter table if exists feedback_entries drop constraint if exists feedback_entries_module_id_check;
 alter table if exists feedback_entries add constraint feedback_entries_module_id_check
 check (module_id in ('oct', 'vkg', 'corneal', 'corneal_ulcer', 'retina'));
