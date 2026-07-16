@@ -258,9 +258,9 @@ function RetinaResultDetails({ aiResult, activeTab, onTabChange }: { aiResult: A
 
 function MiniRetinaMetric({ label, value, sub, danger }: { label: string; value: string; sub: string; danger?: boolean }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-3">
       <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
-      <p className={`mt-1 text-lg font-black ${danger ? "text-red-700" : "text-slate-950"}`}>{value}</p>
+      <p className={`mt-1 break-words text-lg font-black leading-tight ${danger ? "text-red-700" : "text-slate-950"}`}>{value}</p>
       <p className="text-xs font-semibold text-slate-500">{sub}</p>
     </div>
   );
@@ -475,6 +475,14 @@ async function downloadImage(url: string, filename: string) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(objectUrl);
+}
+
+function openImageInNewTab(url: string) {
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function imageDownloadName(label: string, patientCode: string | undefined, scanId: string) {
+  return `${label}_${patientCode ?? scanId}.png`;
 }
 
 function ScanImageActions({
@@ -2462,6 +2470,8 @@ export function UploadScanView() {
     clinicalNotes: ""
   });
   const [error, setError] = useState("");
+  const [patientSaved, setPatientSaved] = useState("");
+  const [savingPatient, setSavingPatient] = useState(false);
   const [analysisWarning, setAnalysisWarning] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<Record<string, AnalysisStepStatus>>({});
@@ -2498,12 +2508,7 @@ export function UploadScanView() {
     }
   };
 
-  const ensurePatient = async () => {
-    if (patientMode === "existing") {
-      if (!patientId) throw new Error(`Select an existing ${moduleLabel} patient or switch to quick registration.`);
-      setStep("patient", "done");
-      return patientId;
-    }
+  const createQuickPatient = async () => {
     const missingFields = [
       !newPatient.cnic.trim() ? "CNIC" : "",
       !newPatient.fullName.trim() ? "name" : "",
@@ -2512,7 +2517,6 @@ export function UploadScanView() {
     if (missingFields.length) throw new Error(`Please enter ${missingFields.join(", ")}.`);
     if (!isValidCnic(newPatient.cnic)) throw new Error("Please enter a valid 13-digit CNIC.");
     if (!isValidPatientAge(newPatient.age)) throw new Error("Please enter a valid age from 0 to 130.");
-    setStep("patient", "active");
     const patient = await store.createPatient({
       ...newPatient,
       patientCode: nextPatientCode(moduleId, store.data.patients),
@@ -2521,14 +2525,41 @@ export function UploadScanView() {
       moduleId
     });
     setPatientId(patient.id);
+    setPatientMode("existing");
+    setNewPatient((current) => ({ ...current, patientCode: nextPatientCode(moduleId, [patient, ...store.data.patients]) }));
+    return patient;
+  };
+
+  const saveQuickPatient = async () => {
+    setError("");
+    setPatientSaved("");
+    setSavingPatient(true);
+    try {
+      const patient = await createQuickPatient();
+      setPatientSaved(`Patient saved: ${patient.patientCode} - ${patient.fullName}`);
+      setStep("patient", "done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save patient.");
+    } finally {
+      setSavingPatient(false);
+    }
+  };
+
+  const ensurePatient = async () => {
+    if (patientMode === "existing" || patientId) {
+      if (!patientId) throw new Error(`Select an existing ${moduleLabel} patient or switch to quick registration.`);
+      setStep("patient", "done");
+      return patientId;
+    }
+    setStep("patient", "active");
+    const patient = await createQuickPatient();
     setStep("patient", "done");
     return patient.id;
   };
 
   const runPrediction = async (file: File) => {
-    const preparedAgain = await prepareScanImages(file);
     return moduleId === "retina"
-      ? predictRetina(preparedAgain.predictionFile, { services: retinaServices, imageQualityWarnings: preparedAgain.quality.warnings })
+      ? predictRetina(file, { services: retinaServices })
       : moduleId === "corneal_ulcer"
         ? predictCornealUlcer(file)
       : moduleId === "vkg"
@@ -2621,6 +2652,20 @@ export function UploadScanView() {
                 <SelectField label="Diabetes history" value={newPatient.diabetesHistory} options={["Yes", "No", "Unknown"]} onChange={(value) => setNewPatient({ ...newPatient, diabetesHistory: value as Patient["diabetesHistory"] })} />
               </div>
             )}
+            {patientMode === "new" ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button type="button" variant="secondary" onClick={saveQuickPatient} disabled={savingPatient || loading}>
+                  {savingPatient ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                  {savingPatient ? "Saving patient..." : "Save Patient"}
+                </Button>
+                <p className="text-xs font-semibold text-slate-500">Save first if you want to confirm the patient record before uploading images.</p>
+              </div>
+            ) : patientId ? (
+              <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+                Patient selected and ready for screening.
+              </p>
+            ) : null}
+            {patientSaved ? <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">{patientSaved}</p> : null}
           </div>
           <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
             <p className="text-xs font-black uppercase tracking-wide text-clinic-700">Step 2</p>
@@ -2833,12 +2878,36 @@ export function AnalysisView({ id }: { id: string }) {
           <div className={aiResult?.heatmapUrl ? "grid gap-4 xl:grid-cols-2" : ""}>
             <div>
               <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500">Original image</p>
-              <img src={scan.imageUrl} alt="OCT scan" className="aspect-[4/3] w-full rounded-md bg-slate-900 object-cover" />
+              <button type="button" className="block w-full text-left" onClick={() => openImageInNewTab(scan.imageUrl)}>
+                <img src={scan.imageUrl} alt="Original uploaded scan" className="aspect-[4/3] w-full rounded-md bg-slate-900 object-contain" />
+              </button>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <Button className="w-full" variant="secondary" onClick={() => openImageInNewTab(scan.imageUrl)}>
+                  <Eye size={16} />
+                  View Larger
+                </Button>
+                <Button className="w-full" variant="secondary" onClick={() => void downloadImage(scan.imageUrl, imageDownloadName("Original", patient?.patientCode, scan.id))}>
+                  <Download size={16} />
+                  Download Original
+                </Button>
+              </div>
             </div>
             {aiResult?.heatmapUrl ? (
               <div>
                 <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500">Grad-CAM overlay</p>
-                <img src={imageDisplaySource(aiResult.heatmapUrl)} alt="Grad-CAM heatmap overlay" className="aspect-[4/3] w-full rounded-md bg-slate-900 object-cover" />
+                <button type="button" className="block w-full text-left" onClick={() => openImageInNewTab(imageDisplaySource(aiResult.heatmapUrl))}>
+                  <img src={imageDisplaySource(aiResult.heatmapUrl)} alt="Grad-CAM heatmap overlay" className="aspect-[4/3] w-full rounded-md bg-slate-900 object-contain" />
+                </button>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <Button className="w-full" variant="secondary" onClick={() => openImageInNewTab(imageDisplaySource(aiResult.heatmapUrl))}>
+                    <Eye size={16} />
+                    View Larger
+                  </Button>
+                  <Button className="w-full" variant="secondary" onClick={() => void downloadImage(imageDisplaySource(aiResult.heatmapUrl), imageDownloadName("GradCAM", patient?.patientCode, scan.id))}>
+                    <Download size={16} />
+                    Download Grad-CAM
+                  </Button>
+                </div>
                 <p className="mt-2 text-xs font-medium leading-relaxed text-slate-500">Attention overlay for quick comparison. Not a segmentation map.</p>
               </div>
             ) : null}

@@ -119,12 +119,6 @@ export async function downloadReportPdf(args: {
   doc.setFont("helvetica", "bold");
   doc.text(report.status === "approved" ? "DOCTOR REVIEWED" : "DRAFT - NOT APPROVED", 430, y + 4);
 
-  if (report.status !== "approved") {
-    doc.setTextColor(220, 38, 38);
-    doc.setFontSize(24);
-    doc.text("DRAFT - NOT APPROVED", 168, 185, { angle: -18 });
-  }
-
   y = 122;
   doc.setTextColor(23, 32, 51);
   doc.setFillColor(241, 245, 249);
@@ -148,6 +142,15 @@ export async function downloadReportPdf(args: {
   }
 
   y += metadataHeight + 14;
+  if (report.status !== "approved") {
+    doc.setTextColor(220, 38, 38);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(24);
+    doc.text("DRAFT - NOT APPROVED", margin + 235, y, { angle: -10 });
+    y += 28;
+    doc.setTextColor(23, 32, 51);
+    doc.setFontSize(11);
+  }
   doc.setFont("helvetica", "bold");
   doc.text("PATIENT INFORMATION", margin, y);
   doc.setFont("helvetica", "normal");
