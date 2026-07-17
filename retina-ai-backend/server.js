@@ -1,5 +1,8 @@
 const path = require("path");
+const fs = require("fs");
+const dns = require("dns");
 const express = require("express");
+const mongoose = require("mongoose");
 const multer = require("multer");
 const sharp = require("sharp");
 const ort = require("onnxruntime-node");
@@ -7,15 +10,14 @@ const FormData = require("form-data");
 const fetch = require("node-fetch");
 const { spawn } = require("child_process");
 
-const PORT = Number(process.env.PORT || 3000);
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
-const PYTHON_BIN = process.env.PYTHON_BIN || "python";
-const SKIP_GRADCAM = process.env.SKIP_GRADCAM === "true";
-const RETINA_SERVICE = (process.env.RETINA_SERVICE || "all").toLowerCase();
-const MODEL_PATH =
-  process.env.RETINA_DR_MODEL_PATH ||
-  path.join(__dirname, "..", "models", "smoke_test.onnx");
-const DR_MODEL_KIND = (process.env.RETINA_DR_MODEL_KIND || "legacy").toLowerCase();
+// Node's default DNS resolver can fail SRV lookups (mongodb+srv://) on
+// machines where a local stub resolver/VPN doesn't support that record
+// type, even though the OS resolver works fine. Point Node at public
+// resolvers so the srv:// connection string always resolves.
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
+
+const PORT = 3000;
+const MODEL_PATH = path.join(__dirname, "..", "models", "smoke_test.onnx");
 const GLAUCOMA_MODEL_PATH = path.join(
   __dirname,
   "..",
@@ -29,11 +31,9 @@ const HR_MODEL_PATH = path.join(
   "hr_efficientnet_model.onnx",
 );
 const GRADCAM_SERVICE_URL = "http://localhost:5000/gradcam";
-const ORT_SESSION_OPTIONS = {
-  executionProviders: ["cpu"],
-  intraOpNumThreads: Number(process.env.ORT_NUM_THREADS || 1),
-  interOpNumThreads: 1,
-};
+const MONGODB_URI =
+  process.env.MONGODB_URI ||
+  "mongodb+srv://ai_retinal_screening:D8jaYBNFn0kURWcg@cluster0.hzqnb4s.mongodb.net/retinal_system?retryWrites=true&w=majority";
 
 const CLASS_LABELS = {
   0: "No DR",
@@ -51,66 +51,157 @@ const REFERRAL_GUIDANCE = {
   4: "Emergency referral - high risk of vision loss",
 };
 
+const eyeResultsSchema = {
+  fundusImage: String, // base64 data URL of the uploaded fundus photograph
+  heatmapImage: String, // base64 Grad-CAM heatmap overlay, if generated
+  drResult: {
+    performed: Boolean,
+    grade: Number,
+    severityLabel: String,
+    confidence: Number,
+    scores: [Number],
+    referral: String,
+    lowConfidence: Boolean,
+    gradDescription: String,
+    icdrGrade: String,
+  },
+  glaucomaResult: {
+    performed: Boolean,
+    cdr: Number,
+    riskLevel: String,
+    riskDetail: String,
+    discPixels: Number,
+    cupPixels: Number,
+    glaucomaSuspected: Boolean,
+  },
+  hrResult: {
+    performed: Boolean,
+    detected: Boolean,
+    probability: Number,
+    riskLevel: String,
+    recommendation: String,
+  },
+};
+
+const scanSchema = new mongoose.Schema(
+  {
+    // Scan metadata
+    scanId: { type: String, required: true, unique: true },
+    timestamp: { type: Date, default: Date.now },
+
+    // Patient demographics
+    patientId: String,
+    patientName: String,
+    patientAge: Number,
+    patientSex: String,
+    patientDob: String,
+    patientEye: String, // OD / OS / OU
+
+    // Clinical context
+    diabeticStatus: String, // Type 1 / Type 2 / No
+    hba1c: Number, // HbA1c percentage
+    referringClinician: String,
+    institution: String,
+
+    // Image quality
+    imageQuality: {
+      passed: Boolean,
+      blurIndex: Number,
+    },
+
+    // Conditions screened
+    conditionsScreened: [String], // DR, Glaucoma, HR
+
+    // Fundus image (single-eye mode) — the source photograph the AI screened
+    fundusImage: String, // base64 data URL
+    heatmapImage: String, // base64 Grad-CAM heatmap overlay, if generated
+
+    // DR result
+    drResult: {
+      performed: Boolean,
+      grade: Number, // 0-4
+      severityLabel: String, // No DR / Mild / Moderate / Severe / Proliferative
+      confidence: Number,
+      scores: [Number], // all 5 class probabilities
+      referral: String,
+      lowConfidence: Boolean,
+      gradDescription: String, // clinical description of the grade
+      icdrGrade: String, // ICDR grade text
+    },
+
+    // Glaucoma result
+    glaucomaResult: {
+      performed: Boolean,
+      cdr: Number, // Cup-to-Disc Ratio
+      riskLevel: String, // Normal / Monitor / Suspicious / High risk
+      riskDetail: String,
+      discPixels: Number,
+      cupPixels: Number,
+      glaucomaSuspected: Boolean,
+    },
+
+    // HR result
+    hrResult: {
+      performed: Boolean,
+      detected: Boolean,
+      probability: Number,
+      riskLevel: String,
+      recommendation: String,
+    },
+
+    // Overall triage
+    triage: {
+      level: String, // ROUTINE / MONITORING / NON-URGENT / URGENT / EMERGENCY
+      mainMessage: String,
+      description: String,
+      referralRequired: Boolean,
+      referralUrgency: String, // Within 12 months / 6 months / 4 weeks / immediate
+    },
+
+    // Dual-eye (OU) results — populated instead of the top-level
+    // drResult/glaucomaResult/hrResult when both eyes are screened separately.
+    odResults: eyeResultsSchema,
+    osResults: eyeResultsSchema,
+
+    // Follow up
+    followUpDate: Date,
+    followUpReason: String,
+    followUpReminder: Boolean,
+    notes: String,
+    status: { type: String, default: "ai_completed" }, // pending / ai_completed / reviewed / referred / follow_up
+    reviewedBy: String,
+
+    // Referral (set when status = "referred")
+    referredTo: String,
+    referralUrgency: String, // Routine / Within 4 weeks / Within 1 week / Immediate
+    referralNotes: String,
+    referralDate: Date,
+  },
+  { timestamps: true },
+);
+
+const Scan = mongoose.model("Scan", scanSchema);
+
 const upload = multer({ storage: multer.memoryStorage() });
 const app = express();
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-  if (req.method === "OPTIONS") return res.sendStatus(204);
-  next();
-});
 app.use(express.static(path.join(__dirname, "public")));
+app.use(express.json({ limit: "15mb" }));
 
 let session;
 let glaucomaSession;
 let hrSession;
 let gradcamProcess;
 
-function serviceEnabled(serviceName) {
-  return RETINA_SERVICE === "all" || RETINA_SERVICE === serviceName;
-}
-
 async function preprocessImageDR(buffer) {
-  if (DR_MODEL_KIND === "convnext") {
-    const { data } = await sharp(buffer)
-      .resize(224, 224)
-      .removeAlpha()
-      .toColorspace("srgb")
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-
-    const mean = [0.485, 0.456, 0.406];
-    const std = [0.229, 0.224, 0.225];
-    const float32Data = new Float32Array(3 * 224 * 224);
-    const pixelCount = 224 * 224;
-
-    for (let i = 0; i < pixelCount; i++) {
-      float32Data[i] = data[i * 3] / 255;
-      float32Data[pixelCount + i] = data[i * 3 + 1] / 255;
-      float32Data[2 * pixelCount + i] = data[i * 3 + 2] / 255;
-    }
-
-    for (let c = 0; c < 3; c++) {
-      const channelOffset = c * pixelCount;
-      for (let i = 0; i < pixelCount; i++) {
-        float32Data[channelOffset + i] =
-          (float32Data[channelOffset + i] - mean[c]) / std[c];
-      }
-    }
-
-    return new ort.Tensor("float32", float32Data, [1, 3, 224, 224]);
-  }
-
   const { data } = await sharp(buffer)
-    .resize(300, 300)
+    .resize(224, 224)
     .removeAlpha()
     .toColorspace("srgb")
     .raw()
     .toBuffer({ resolveWithObject: true });
 
-  const float32Data = new Float32Array(3 * 300 * 300);
-  const pixelCount = 300 * 300;
+  const float32Data = new Float32Array(3 * 224 * 224);
+  const pixelCount = 224 * 224;
 
   for (let i = 0; i < pixelCount; i++) {
     float32Data[i] = data[i * 3] / 255;
@@ -118,7 +209,7 @@ async function preprocessImageDR(buffer) {
     float32Data[2 * pixelCount + i] = data[i * 3 + 2] / 255;
   }
 
-  return new ort.Tensor("float32", float32Data, [1, 3, 300, 300]);
+  return new ort.Tensor("float32", float32Data, [1, 3, 224, 224]);
 }
 
 async function preprocessImageHREfficientNet(buffer) {
@@ -382,23 +473,10 @@ function getRiskLevel(cdr) {
 }
 
 app.get("/health", (req, res) => {
-  res.json({
-    status: "ok",
-    service: RETINA_SERVICE,
-    dr_model_kind: DR_MODEL_KIND,
-    dr_model_path: path.basename(MODEL_PATH),
-    models_loaded: {
-      dr: Boolean(session),
-      glaucoma: Boolean(glaucomaSession),
-      hr: Boolean(hrSession),
-    },
-  });
+  res.json({ status: "ok" });
 });
 
 app.post("/predict", upload.single("image"), async (req, res) => {
-  if (!serviceEnabled("dr")) {
-    return res.status(404).json({ error: "DR model is not enabled on this Retina service" });
-  }
   if (!req.file) {
     return res.status(400).json({ error: "No image file uploaded" });
   }
@@ -433,10 +511,6 @@ app.post("/predict", upload.single("image"), async (req, res) => {
       referral: REFERRAL_GUIDANCE[predictedClass],
       heatmap,
       low_confidence: isLowConfidence,
-      model_name:
-        DR_MODEL_KIND === "convnext"
-          ? "ConvNeXt-Base DR Screening Model (ONNX quantized)"
-          : "DR severity ONNX model",
       confidence_warning: isLowConfidence
         ? "Low confidence prediction — consider re-imaging or specialist review"
         : null,
@@ -448,9 +522,6 @@ app.post("/predict", upload.single("image"), async (req, res) => {
 });
 
 app.post("/predict-glaucoma", upload.single("image"), async (req, res) => {
-  if (!serviceEnabled("glaucoma")) {
-    return res.status(404).json({ error: "Glaucoma model is not enabled on this Retina service" });
-  }
   if (!req.file) {
     return res.status(400).json({ error: "No image file uploaded" });
   }
@@ -494,9 +565,6 @@ app.post("/predict-glaucoma", upload.single("image"), async (req, res) => {
 });
 
 app.post("/predict-hr", upload.single("image"), async (req, res) => {
-  if (!serviceEnabled("hr")) {
-    return res.status(404).json({ error: "Hypertensive-retinopathy model is not enabled on this Retina service" });
-  }
   if (!req.file) {
     return res.status(400).json({ error: "No image file uploaded" });
   }
@@ -531,16 +599,113 @@ app.post("/predict-hr", upload.single("image"), async (req, res) => {
   }
 });
 
-function startGradCam() {
-  if (SKIP_GRADCAM) {
-    console.log("[GradCAM] Skipped by SKIP_GRADCAM=true");
-    return null;
+app.post("/save-scan", async (req, res) => {
+  try {
+    const scan = new Scan(req.body);
+    await scan.save();
+    res.json({ success: true, scanId: scan.scanId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to save scan" });
   }
+});
 
-  const gradcam = spawn(PYTHON_BIN, [path.join(__dirname, "gradcam_service.py")], {
-    detached: false,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+app.get("/scans", async (req, res) => {
+  try {
+    const scans = await Scan.find({}, { heatmap: 0 })
+      .sort({ timestamp: -1 })
+      .limit(50);
+    res.json(scans);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch scans" });
+  }
+});
+
+app.get("/scans/:scanId", async (req, res) => {
+  try {
+    const scan = await Scan.findOne({ scanId: req.params.scanId });
+    if (!scan) {
+      return res.status(404).json({ error: "Scan not found" });
+    }
+    res.json(scan);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch scan" });
+  }
+});
+
+const PATCHABLE_FIELDS = [
+  "status",
+  "reviewedBy",
+  "notes",
+  "followUpDate",
+  "followUpReason",
+  "followUpReminder",
+  "referredTo",
+  "referralUrgency",
+  "referralNotes",
+  "referralDate",
+  "patientName",
+  "patientId",
+  "patientAge",
+  "patientSex",
+  "referringClinician",
+];
+
+app.patch("/scans/:scanId", async (req, res) => {
+  try {
+    const update = {};
+    for (const field of PATCHABLE_FIELDS) {
+      if (req.body[field] !== undefined) update[field] = req.body[field];
+    }
+
+    const scan = await Scan.findOneAndUpdate(
+      { scanId: req.params.scanId },
+      update,
+      { new: true },
+    );
+    if (!scan) {
+      return res.status(404).json({ error: "Scan not found" });
+    }
+    res.json(scan);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update scan" });
+  }
+});
+
+app.delete("/scans/:scanId", async (req, res) => {
+  try {
+    const result = await Scan.deleteOne({ scanId: req.params.scanId });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: "Scan not found" });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete scan" });
+  }
+});
+
+function getGradCamPython() {
+  const venvPath = "C:/gradcam-venv/Scripts/python.exe";
+  if (fs.existsSync(venvPath)) {
+    return venvPath;
+  }
+  // fallback to system python
+  return process.env.GRADCAM_PYTHON || "python";
+}
+
+function startGradCam() {
+  const gradcam = spawn(
+    getGradCamPython(),
+    [path.join(__dirname, "gradcam_service.py")],
+    {
+      detached: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   gradcam.stdout.on("data", (data) => {
     console.log("[GradCAM]", data.toString().trim());
@@ -559,24 +724,56 @@ function startGradCam() {
   return gradcam;
 }
 
-async function start() {
-  if (serviceEnabled("dr")) {
-    gradcamProcess = startGradCam();
+function checkModelInputSize(label, session, expectedSize) {
+  try {
+    const inputName = session.inputNames[0];
+    const dims = session.inputMetadata?.[0]?.shape || session.inputMetadata?.[inputName]?.dimensions;
+    if (!dims) return;
+
+    const [, , h, w] = dims;
+    if (h !== expectedSize || w !== expectedSize) {
+      console.warn(
+        `[WARNING] ${label} expects input ${h}x${w}, but the server is configured to preprocess at ` +
+          `${expectedSize}x${expectedSize}. Predictions from this model will fail or be wrong. ` +
+          `Update the matching preprocess function in server.js to resize to ${h}x${w}.`,
+      );
+    } else {
+      console.log(`${label}: input size OK (${h}x${w})`);
+    }
+  } catch (err) {
+    console.warn(`Could not verify input size for ${label}:`, err.message);
   }
+}
+
+async function start() {
+  try {
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+      family: 4,
+    });
+    console.log("MongoDB connected");
+  } catch (err) {
+    console.error(
+      "MongoDB connection failed, continuing without it:",
+      err.message,
+    );
+    console.error("Scan history will not be saved until MongoDB is reachable.");
+  }
+
+  gradcamProcess = startGradCam();
 
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
-  if (serviceEnabled("dr")) {
-    session = await ort.InferenceSession.create(MODEL_PATH, ORT_SESSION_OPTIONS);
-  }
-  if (serviceEnabled("glaucoma")) {
-    glaucomaSession = await ort.InferenceSession.create(GLAUCOMA_MODEL_PATH, ORT_SESSION_OPTIONS);
-  }
-  if (serviceEnabled("hr")) {
-    hrSession = await ort.InferenceSession.create(HR_MODEL_PATH, ORT_SESSION_OPTIONS);
-  }
+  session = await ort.InferenceSession.create(MODEL_PATH);
+  glaucomaSession = await ort.InferenceSession.create(GLAUCOMA_MODEL_PATH);
+  hrSession = await ort.InferenceSession.create(HR_MODEL_PATH);
+
+  checkModelInputSize("DR (smoke_test.onnx)", session, 224);
+  checkModelInputSize("Glaucoma (glaucoma_model.onnx)", glaucomaSession, 512);
+  checkModelInputSize("HR (hr_efficientnet_model.onnx)", hrSession, 300);
+
   app.listen(PORT, () => {
-    console.log(`Retina ${RETINA_SERVICE} service listening on port ${PORT}`);
+    console.log(`Server listening on port ${PORT}`);
   });
 }
 

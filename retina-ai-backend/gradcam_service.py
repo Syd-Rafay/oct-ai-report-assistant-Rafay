@@ -13,9 +13,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from training.dataset import apply_clahe, crop_to_circle
 
 MODEL_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "models", "best_efficientnet_model.pth"
+    os.path.dirname(__file__), "..", "models", "best_convnext_model.pth"
 )
-IMAGE_SIZE = 300
+IMAGE_SIZE = 224
 OVERLAY_OPACITY = 0.4
 
 app = Flask(__name__)
@@ -57,6 +57,11 @@ class GradCAM:
         if cam.max() > 0:
             cam = cam / cam.max()
 
+        # only show top 70% of attention
+        cam_threshold = cam.copy()
+        cam_threshold[cam_threshold < 0.3] = 0
+        cam = cam_threshold
+
         return cam, predicted_class
 
 
@@ -70,6 +75,30 @@ def preprocess_image(image_bgr):
     tensor = torch.from_numpy(normalized.transpose(2, 0, 1)).unsqueeze(0).float()
 
     return tensor, resized
+
+
+def apply_circular_mask(heatmap, image):
+    h, w = heatmap.shape[:2]
+    center_x, center_y = w // 2, h // 2
+
+    # radius is 46% of the smaller dimension
+    radius = int(min(h, w) * 0.46)
+
+    # create distance map from center
+    Y, X = np.ogrid[:h, :w]
+    dist_from_center = np.sqrt((X - center_x) ** 2 + (Y - center_y) ** 2)
+
+    # create soft mask — 1.0 inside, gradual fade at edge
+    # transition zone is 8% of radius width
+    transition = radius * 0.08
+    mask = np.clip((radius - dist_from_center) / transition, 0, 1).astype(np.float32)
+
+    # apply soft mask to each channel of heatmap
+    if len(heatmap.shape) == 3:
+        mask = mask[:, :, np.newaxis]
+
+    heatmap_masked = heatmap * mask
+    return heatmap_masked.astype(heatmap.dtype)
 
 
 def overlay_heatmap(cam, original_bgr):
@@ -87,11 +116,11 @@ def encode_image_base64(image_bgr):
     return base64.b64encode(buffer).decode("utf-8")
 
 
-model = timm.create_model("efficientnet_b3", pretrained=False, num_classes=5)
+model = timm.create_model("convnext_base", pretrained=False, num_classes=5)
 model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
 model.eval()
 
-grad_cam = GradCAM(model, model.blocks[-1])
+grad_cam = GradCAM(model, model.stages[-1])
 
 
 @app.route("/gradcam", methods=["POST"])
@@ -106,6 +135,7 @@ def gradcam():
 
     input_tensor, resized_original = preprocess_image(image_bgr)
     cam, predicted_class = grad_cam.generate(input_tensor)
+    cam = apply_circular_mask(cam, resized_original)
     overlay = overlay_heatmap(cam, resized_original)
     heatmap_b64 = encode_image_base64(overlay)
 
