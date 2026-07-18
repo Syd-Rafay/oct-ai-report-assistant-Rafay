@@ -1,4 +1,5 @@
 import type { BackendPrediction } from "./types";
+import { supabase } from "./supabase";
 
 export type RetinaServiceSelection = {
   dr: boolean;
@@ -87,27 +88,60 @@ async function postImageEndpoint(file: File, endpointUrl: string | undefined, mi
   };
 }
 
+async function currentSupabaseJwt() {
+  if (!supabase) return null;
+
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
+
+async function postOctGatewayPrediction(file: File): Promise<BackendPrediction> {
+  const token = await currentSupabaseJwt();
+  if (!token) {
+    throw new Error("You must be signed in to run OCT analysis.");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  const startedAt = performance.now();
+
+  let response: Response;
+  try {
+    response = await fetch("/api/ai/oct", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      body: formData
+    });
+  } catch {
+    throw new Error("Could not reach the OCT gateway. Check your connection or application status.");
+  }
+
+  if (!response.ok) {
+    let detail = "AI prediction failed.";
+    try {
+      const body = await response.json();
+      detail = body.detail ?? body.error ?? detail;
+    } catch {
+      // Keep the generic message if the gateway did not return JSON.
+    }
+    throw new Error(detail);
+  }
+
+  const prediction = (await response.json()) as BackendPrediction;
+  return {
+    ...prediction,
+    request_time_ms: Math.round(performance.now() - startedAt),
+  };
+}
+
 export async function predictOCT(file: File): Promise<BackendPrediction> {
-  return postImagePrediction(
-    file,
-    process.env.NEXT_PUBLIC_AI_BACKEND_URL,
-    "NEXT_PUBLIC_AI_BACKEND_URL is missing. Add it to .env.local."
-  );
+  return postOctGatewayPrediction(file);
 }
 
 export async function predictOCTWithGradcam(file: File): Promise<BackendPrediction> {
-  const gradcamBackendUrl = process.env.NEXT_PUBLIC_OCT_GRADCAM_BACKEND_URL?.replace(/\/$/, "");
-  const mainBackendUrl = process.env.NEXT_PUBLIC_AI_BACKEND_URL?.replace(/\/$/, "");
-
-  try {
-    return await postImageEndpoint(
-      file,
-      gradcamBackendUrl ? `${gradcamBackendUrl}/gradcam` : mainBackendUrl ? `${mainBackendUrl}/gradcam` : undefined,
-      "NEXT_PUBLIC_AI_BACKEND_URL is missing. Add it to .env.local."
-    );
-  } catch {
-    return predictOCT(file);
-  }
+  return postOctGatewayPrediction(file);
 }
 
 export async function predictCorneal(file: File): Promise<BackendPrediction> {

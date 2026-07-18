@@ -1,5 +1,7 @@
 import os
 import base64
+import hashlib
+import hmac
 import json
 import smtplib
 import ssl
@@ -16,7 +18,7 @@ from typing import Any
 import numpy as np
 import requests
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
@@ -51,6 +53,7 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "OCT AI Report Assistant")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", SMTP_FROM_EMAIL)
 RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", SMTP_FROM_NAME)
+AI_GATEWAY_SHARED_SECRET = os.getenv("AI_GATEWAY_SHARED_SECRET", "")
 ACCESS_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 
 app = FastAPI(title="OCT AI Backend", version=MODEL_VERSION)
@@ -231,6 +234,39 @@ def gradcam_prediction_and_overlay(image: Image.Image, image_tensor: torch.Tenso
         forward_handle.remove()
         backward_handle.remove()
         model.zero_grad(set_to_none=True)
+
+
+async def verify_ai_gateway_signature(request: Request, file: UploadFile) -> None:
+    timestamp = request.headers.get("X-AFIO-Timestamp")
+    signature = request.headers.get("X-AFIO-Signature")
+
+    if not timestamp or not signature:
+        raise HTTPException(status_code=401, detail="Missing AFIO signature headers.")
+
+    try:
+        timestamp_ms = int(timestamp)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Invalid AFIO timestamp.") from exc
+
+    now_ms = int(time.time() * 1000)
+    if now_ms - timestamp_ms > 5 * 60 * 1000:
+        raise HTTPException(status_code=403, detail="AFIO signature has expired.")
+
+    if not AI_GATEWAY_SHARED_SECRET:
+        raise HTTPException(status_code=500, detail="AI gateway shared secret is not configured.")
+
+    image_bytes = await file.read()
+    payload = base64.b64encode(image_bytes).decode("ascii")
+    expected_signature = hmac.new(
+        AI_GATEWAY_SHARED_SECRET.encode("utf-8"),
+        f"{timestamp}.{payload}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    await file.seek(0)
+
+    if not hmac.compare_digest(expected_signature, signature):
+        raise HTTPException(status_code=403, detail="Invalid AFIO signature.")
 
 
 async def read_oct_upload(file: UploadFile) -> Image.Image:
@@ -944,8 +980,9 @@ def add_feedback_response(feedback_id: str, input_data: FeedbackResponseRequest)
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(request: Request, file: UploadFile = File(...)):
     started_at = time.perf_counter()
+    await verify_ai_gateway_signature(request, file)
     if model is None:
         raise HTTPException(
             status_code=503,
@@ -1000,8 +1037,9 @@ async def predict(file: UploadFile = File(...)):
 
 
 @app.post("/gradcam")
-async def gradcam(file: UploadFile = File(...)):
+async def gradcam(request: Request, file: UploadFile = File(...)):
     started_at = time.perf_counter()
+    await verify_ai_gateway_signature(request, file)
     if not ENABLE_GRADCAM:
         raise HTTPException(
             status_code=503,
