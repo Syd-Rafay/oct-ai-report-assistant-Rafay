@@ -95,27 +95,33 @@ async function currentSupabaseJwt() {
   return data.session?.access_token ?? null;
 }
 
-async function postOctGatewayPrediction(file: File): Promise<BackendPrediction> {
+async function postGatewayPrediction(
+  routePath: string,
+  file: File,
+  fieldName = "file",
+  requestHeaders: Record<string, string> = {}
+): Promise<BackendPrediction> {
   const token = await currentSupabaseJwt();
   if (!token) {
-    throw new Error("You must be signed in to run OCT analysis.");
+    throw new Error("You must be signed in to run AI analysis.");
   }
 
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append(fieldName, file);
   const startedAt = performance.now();
 
   let response: Response;
   try {
-    response = await fetch("/api/ai/oct", {
+    response = await fetch(routePath, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
+        ...requestHeaders
       },
       body: formData
     });
   } catch {
-    throw new Error("Could not reach the OCT gateway. Check your connection or application status.");
+    throw new Error("Could not reach the AI gateway. Check your connection or application status.");
   }
 
   if (!response.ok) {
@@ -137,11 +143,11 @@ async function postOctGatewayPrediction(file: File): Promise<BackendPrediction> 
 }
 
 export async function predictOCT(file: File): Promise<BackendPrediction> {
-  return postOctGatewayPrediction(file);
+  return postGatewayPrediction("/api/ai/oct", file);
 }
 
 export async function predictOCTWithGradcam(file: File): Promise<BackendPrediction> {
-  return postOctGatewayPrediction(file);
+  return postGatewayPrediction("/api/ai/oct", file, "file", { "X-AFIO-Mode": "gradcam" });
 }
 
 export async function predictCorneal(file: File): Promise<BackendPrediction> {
@@ -149,33 +155,11 @@ export async function predictCorneal(file: File): Promise<BackendPrediction> {
 }
 
 export async function predictCornealUlcer(file: File): Promise<BackendPrediction> {
-  // Keep this backend split from the existing corneal ensemble services.
-  const backendUrl = process.env.NEXT_PUBLIC_CORNEAL_ULCER_BACKEND_URL?.replace(/\/$/, "");
-  return postImagePrediction(
-    file,
-    backendUrl,
-    "Corneal ulcer disease backend is not connected. Add NEXT_PUBLIC_CORNEAL_ULCER_BACKEND_URL in Vercel/Render before running this screening."
-  );
+  return postGatewayPrediction("/api/ai/corneal-ulcer", file);
 }
 
 export async function predictVKG(file: File): Promise<BackendPrediction> {
-  const backendUrls = uniqueUrls([
-    process.env.NEXT_PUBLIC_VKG_BACKEND_URL,
-    process.env.NEXT_PUBLIC_CORNEAL_BACKEND_URL,
-    process.env.NEXT_PUBLIC_CORNEAL_RESNET_BACKEND_URL,
-    process.env.NEXT_PUBLIC_CORNEAL_DENSENET_BACKEND_URL,
-    process.env.NEXT_PUBLIC_CORNEAL_EFFICIENTNET_BACKEND_URL,
-  ]);
-  if (backendUrls.length > 1) {
-    return normalizeVkgEnsemblePrediction(
-      await Promise.all(backendUrls.map((url) => postImagePrediction(file, url, "A configured VKG backend URL is missing.")))
-    );
-  }
-  if (backendUrls.length === 1) {
-    return normalizeVkgPrediction(await postImagePrediction(file, backendUrls[0], "NEXT_PUBLIC_VKG_BACKEND_URL is missing."));
-  }
-
-  throw new Error("VKG trained model backend is not connected. Add NEXT_PUBLIC_VKG_BACKEND_URL, NEXT_PUBLIC_CORNEAL_BACKEND_URL, or split corneal backend URLs in Vercel before running VKG analysis.");
+  return postGatewayPrediction("/api/ai/corneal", file);
 }
 
 function uniqueUrls(urls: Array<string | undefined>): string[] {
@@ -193,30 +177,22 @@ export async function predictRetina(file: File, options: RetinaPredictionOptions
   if (!services.dr && !services.glaucoma && !services.hr) {
     throw new Error("Select at least one Retina screening model to run.");
   }
-  const combinedRetinaUrl = process.env.NEXT_PUBLIC_RETINA_BACKEND_URL?.replace(/\/$/, "");
-  const retinaDrUrl = (process.env.NEXT_PUBLIC_RETINA_DR_BACKEND_URL || combinedRetinaUrl)?.replace(/\/$/, "");
-  const retinaDrGradcamEndpoint = "/api/retina/dr-gradcam";
-  const retinaGlaucomaUrl = (process.env.NEXT_PUBLIC_RETINA_GLAUCOMA_BACKEND_URL || combinedRetinaUrl)?.replace(/\/$/, "");
-  const retinaHrUrl = (process.env.NEXT_PUBLIC_RETINA_HR_BACKEND_URL || combinedRetinaUrl)?.replace(/\/$/, "");
-  if (services.dr && !retinaDrUrl) {
-    throw new Error("Retina DR backend URL is missing. Add NEXT_PUBLIC_RETINA_DR_BACKEND_URL or NEXT_PUBLIC_RETINA_BACKEND_URL.");
-  }
 
   const dr = services.dr
-    ? await postImageEndpoint(file, `${retinaDrUrl}/predict`, "Retina diabetic-retinopathy endpoint is missing.", "image").catch((error) => {
+    ? await postGatewayPrediction("/api/ai/retina/dr", file, "image").catch((error) => {
         throw new Error(`Retina DR endpoint failed: ${error instanceof Error ? error.message : "unknown error"}`);
       })
     : undefined;
   const [drGradcamResult, glaucomaResult, hypertensiveRetinopathyResult] = await Promise.allSettled([
     services.dr
-      ? postImageEndpoint(file, retinaDrGradcamEndpoint, "Retina DR Grad-CAM endpoint is missing.", "image")
+      ? postGatewayPrediction("/api/ai/retina/dr-gradcam", file, "image")
       : Promise.reject(new Error("DR not selected.")),
-    services.glaucoma && retinaGlaucomaUrl
-      ? postImageEndpoint(file, `${retinaGlaucomaUrl}/predict-glaucoma`, "Retina glaucoma endpoint is missing.", "image")
-      : Promise.reject(new Error(services.glaucoma ? "NEXT_PUBLIC_RETINA_GLAUCOMA_BACKEND_URL is missing." : "Glaucoma not selected.")),
-    services.hr && retinaHrUrl
-      ? postImageEndpoint(file, `${retinaHrUrl}/predict-hr`, "Retina hypertensive-retinopathy endpoint is missing.", "image")
-      : Promise.reject(new Error(services.hr ? "NEXT_PUBLIC_RETINA_HR_BACKEND_URL is missing." : "Hypertensive retinopathy not selected.")),
+    services.glaucoma
+      ? postGatewayPrediction("/api/ai/retina/glaucoma", file, "image")
+      : Promise.reject(new Error("Glaucoma not selected.")),
+    services.hr
+      ? postGatewayPrediction("/api/ai/retina/hr", file, "image")
+      : Promise.reject(new Error("Hypertensive retinopathy not selected.")),
   ]);
   const optionalWarnings = [
     services.dr && drGradcamResult.status === "rejected" ? `DR Grad-CAM endpoint unavailable: ${drGradcamResult.reason instanceof Error ? drGradcamResult.reason.message : "unknown error"}` : "",
@@ -371,7 +347,7 @@ function normalizeRetinaPrediction(prediction: (BackendPrediction & {
   };
 }
 
-function normalizeVkgPrediction(prediction: BackendPrediction): BackendPrediction {
+export function normalizeVkgPrediction(prediction: BackendPrediction): BackendPrediction {
   const rawProbabilities = prediction.probabilities as Record<string, number>;
   const keratoconus = rawProbabilities.keratoconus ?? rawProbabilities.KCN ?? rawProbabilities.KERATOCONUS_RISK ?? 0;
   const normal = rawProbabilities.non_keratoconus ?? rawProbabilities.NORMAL ?? rawProbabilities.NO_KERATOCONUS_RISK ?? 0;
@@ -407,7 +383,7 @@ function normalizeVkgPrediction(prediction: BackendPrediction): BackendPredictio
   };
 }
 
-function normalizeVkgEnsemblePrediction(predictions: BackendPrediction[]): BackendPrediction {
+export function normalizeVkgEnsemblePrediction(predictions: BackendPrediction[]): BackendPrediction {
   if (predictions.length === 0) {
     throw new Error("No VKG backend predictions returned.");
   }

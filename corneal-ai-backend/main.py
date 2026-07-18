@@ -1,6 +1,10 @@
+import base64
+import hashlib
+import hmac
 import os
+import time
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from model import (
@@ -36,6 +40,7 @@ app.add_middleware(
 models_dict = None
 model_error = None
 summary = load_summary()
+AI_GATEWAY_SHARED_SECRET = os.getenv("AI_GATEWAY_SHARED_SECRET", "")
 
 
 def get_models():
@@ -43,6 +48,36 @@ def get_models():
     if models_dict is None:
         models_dict, model_error = load_models()
     return models_dict, model_error
+
+
+async def verify_ai_gateway_signature(request: Request, file: UploadFile) -> None:
+    timestamp = request.headers.get("X-AFIO-Timestamp")
+    signature = request.headers.get("X-AFIO-Signature")
+
+    if not timestamp or not signature:
+        raise HTTPException(status_code=401, detail="Missing AFIO signature headers.")
+
+    try:
+        timestamp_ms = int(timestamp)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Invalid AFIO timestamp.") from exc
+
+    if int(time.time() * 1000) - timestamp_ms > 5 * 60 * 1000:
+        raise HTTPException(status_code=403, detail="AFIO signature has expired.")
+
+    if not AI_GATEWAY_SHARED_SECRET:
+        raise HTTPException(status_code=500, detail="AI gateway shared secret is not configured.")
+
+    file_bytes = await file.read()
+    expected_signature = hmac.new(
+        AI_GATEWAY_SHARED_SECRET.encode("utf-8"),
+        f"{timestamp}.{base64.b64encode(file_bytes).decode('ascii')}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    await file.seek(0)
+
+    if not hmac.compare_digest(expected_signature, signature):
+        raise HTTPException(status_code=403, detail="Invalid AFIO signature.")
 
 
 @app.get("/")
@@ -71,10 +106,11 @@ def health():
 
 
 @app.post("/predict", response_model=CornealPrediction)
-async def predict(file: UploadFile = File(...)):
+async def predict(request: Request, file: UploadFile = File(...)):
     loaded_models, load_error = get_models()
     if not loaded_models:
         raise HTTPException(status_code=503, detail=f"Corneal model is not loaded. {load_error}")
+    await verify_ai_gateway_signature(request, file)
     if file.content_type not in {"image/jpeg", "image/png"}:
         raise HTTPException(status_code=400, detail="Only JPG, JPEG, and PNG corneal images are supported.")
 
